@@ -394,7 +394,10 @@ export class PlanetView {
     this.refreshMarkers(data, true);
   }
 
-  /** Flat road ribbons coplanar with each hex face (same fan as tiles) */
+  /**
+   * Continuous road ribbons: one strip per link from face-centre → shared
+   * edge mid → neighbour face-centre (same path bods travel), so joins meet.
+   */
   private drawRoutes(data: PlanetViewData): void {
     this.clearGroup(this.pathGroup);
     const cellMap = new Map(data.cells.map((c) => [c.id, c]));
@@ -410,73 +413,98 @@ export class PlanetView {
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
     });
-    const halfW = 0.018;
-    const lift = 0.0012;
-    // Through the face centre so open edges join into one continuous road
-    const tInner = 0;
-    const tOuter = 0.99;
+    const halfW = 0.016;
+    const lift = 0.0015;
+    const drawn = new Set<string>();
 
-    const addStrip = (
-      centerRaw: THREE.Vector3,
-      vaRaw: THREE.Vector3,
-      vbRaw: THREE.Vector3,
-    ) => {
-      const outward = centerRaw.clone().normalize();
-      const c = centerRaw
-        .clone()
-        .multiplyScalar(0.98)
-        .addScaledVector(outward, lift);
-      const a = vaRaw
-        .clone()
-        .multiplyScalar(1.002)
-        .addScaledVector(vaRaw.clone().normalize(), lift);
-      const b = vbRaw
-        .clone()
-        .multiplyScalar(1.002)
-        .addScaledVector(vbRaw.clone().normalize(), lift);
-      const edgeMid = a.clone().add(b).multiplyScalar(0.5);
-      const pIn = c.clone().lerp(edgeMid, tInner);
-      const pOut = c.clone().lerp(edgeMid, tOuter);
-      const side = new THREE.Vector3().subVectors(a, b);
-      if (side.lengthSq() < 1e-12) return;
-      side.normalize().multiplyScalar(halfW);
+    const faceCenter = (raw: THREE.Vector3): THREE.Vector3 => {
+      const n = raw.clone().normalize();
+      return raw.clone().multiplyScalar(0.98).addScaledVector(n, lift);
+    };
 
-      const i0 = pIn.clone().add(side);
-      const i1 = pIn.clone().sub(side);
-      const o0 = pOut.clone().add(side);
-      const o1 = pOut.clone().sub(side);
+    const faceVert = (raw: THREE.Vector3): THREE.Vector3 => {
+      const n = raw.clone().normalize();
+      return raw.clone().multiplyScalar(1.002).addScaledVector(n, lift);
+    };
 
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute(
-        "position",
-        new THREE.Float32BufferAttribute(
-          [
-            i0.x, i0.y, i0.z,
-            i1.x, i1.y, i1.z,
-            o0.x, o0.y, o0.z,
-            i1.x, i1.y, i1.z,
-            o1.x, o1.y, o1.z,
-            o0.x, o0.y, o0.z,
-          ],
-          3,
-        ),
-      );
-      geo.computeVertexNormals();
-      this.pathGroup.add(new THREE.Mesh(geo, mat));
+    /** Edge of `cell` whose midpoint aims most toward `toward` (neighbor centre) */
+    const edgeToward = (
+      cell: CellView,
+      toward: THREE.Vector3,
+    ): { a: THREE.Vector3; b: THREE.Vector3; mid: THREE.Vector3 } | null => {
+      if (cell.vertices.length < 3) return null;
+      const c = new THREE.Vector3(cell.center.x, cell.center.y, cell.center.z);
+      const dir = toward.clone().sub(c);
+      let bestI = 0;
+      let bestDot = -Infinity;
+      for (let i = 0; i < cell.vertices.length; i++) {
+        const va = cell.vertices[i]!;
+        const vb = cell.vertices[(i + 1) % cell.vertices.length]!;
+        const mid = new THREE.Vector3(
+          (va.x + vb.x) * 0.5,
+          (va.y + vb.y) * 0.5,
+          (va.z + vb.z) * 0.5,
+        );
+        const d = mid.clone().sub(c);
+        const dot = d.dot(dir);
+        if (dot > bestDot) {
+          bestDot = dot;
+          bestI = i;
+        }
+      }
+      const va = cell.vertices[bestI]!;
+      const vb = cell.vertices[(bestI + 1) % cell.vertices.length]!;
+      const a = faceVert(new THREE.Vector3(va.x, va.y, va.z));
+      const b = faceVert(new THREE.Vector3(vb.x, vb.y, vb.z));
+      return { a, b, mid: a.clone().add(b).multiplyScalar(0.5) };
+    };
+
+    const addRibbon = (points: THREE.Vector3[]) => {
+      if (points.length < 2) return;
+      for (let s = 0; s < points.length - 1; s++) {
+        const p0 = points[s]!;
+        const p1 = points[s + 1]!;
+        const along = p1.clone().sub(p0);
+        if (along.lengthSq() < 1e-14) continue;
+        // Width vector: perpendicular to segment, in a plane tangent-ish to the sphere
+        const radial = p0.clone().add(p1).normalize();
+        let side = new THREE.Vector3().crossVectors(along, radial);
+        if (side.lengthSq() < 1e-14) {
+          side = new THREE.Vector3().crossVectors(along, new THREE.Vector3(0, 1, 0));
+        }
+        if (side.lengthSq() < 1e-14) {
+          side = new THREE.Vector3().crossVectors(along, new THREE.Vector3(1, 0, 0));
+        }
+        side.normalize().multiplyScalar(halfW);
+
+        const i0 = p0.clone().add(side);
+        const i1 = p0.clone().sub(side);
+        const o0 = p1.clone().add(side);
+        const o1 = p1.clone().sub(side);
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(
+            [
+              i0.x, i0.y, i0.z,
+              i1.x, i1.y, i1.z,
+              o0.x, o0.y, o0.z,
+              i1.x, i1.y, i1.z,
+              o1.x, o1.y, o1.z,
+              o0.x, o0.y, o0.z,
+            ],
+            3,
+          ),
+        );
+        geo.computeVertexNormals();
+        this.pathGroup.add(new THREE.Mesh(geo, mat));
+      }
     };
 
     for (const placed of data.placed) {
       const cell = cellMap.get(placed.cellId);
-      if (!cell || cell.vertices.length < 3) continue;
-      const center = new THREE.Vector3(
-        cell.center.x,
-        cell.center.y,
-        cell.center.z,
-      );
-      const verts = cell.vertices.map(
-        (v) => new THREE.Vector3(v.x, v.y, v.z),
-      );
-
+      if (!cell) continue;
       for (let i = 0; i < cell.neighbors.length; i++) {
         if (!(placed.connections[i] ?? false)) continue;
         const nid = cell.neighbors[i]!;
@@ -486,10 +514,31 @@ export class PlanetView {
         if (!nCell) continue;
         const back = nCell.neighbors.indexOf(cell.id);
         if (back < 0 || !(nPlaced.connections[back] ?? false)) continue;
+        const key =
+          placed.cellId < nid
+            ? `${placed.cellId}:${nid}`
+            : `${nid}:${placed.cellId}`;
+        if (drawn.has(key)) continue;
+        drawn.add(key);
 
-        const va = verts[i]!;
-        const vb = verts[(i + 1) % verts.length]!;
-        addStrip(center, va, vb);
+        const cA = new THREE.Vector3(
+          cell.center.x,
+          cell.center.y,
+          cell.center.z,
+        );
+        const cB = new THREE.Vector3(
+          nCell.center.x,
+          nCell.center.y,
+          nCell.center.z,
+        );
+        const ca = faceCenter(cA);
+        const cb = faceCenter(cB);
+        const edge = edgeToward(cell, cB);
+        const mid = edge?.mid ?? ca.clone().lerp(cb, 0.5).normalize().multiplyScalar(
+          ca.length() * 0.5 + cb.length() * 0.5,
+        );
+        // Face centre → shared edge → neighbour centre (continuous across the join)
+        addRibbon([ca, mid, cb]);
       }
     }
   }

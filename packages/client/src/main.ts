@@ -82,7 +82,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.13";
+const CLIENT_BUILD = "v0.1.14";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 
 const app = document.getElementById("app")!;
