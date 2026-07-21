@@ -99,12 +99,12 @@ header.top {
 }
 
 .swatch.base {
-  background: #ff7a3d;
+  background: #4a4038;
 }
 
 .swatch.mine {
-  background: #5cff9a;
-  box-shadow: 0 0 6px #5cff9a;
+  background: #e8dcc8;
+  box-shadow: 0 0 4px #7eb8ff;
 }
 
 .swatch.legal {

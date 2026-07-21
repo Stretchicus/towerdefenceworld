@@ -30,6 +30,7 @@ export interface PlanetViewData {
   players: { id: string; baseCellId: number; teamId: string; alive: boolean }[];
   /** Cells where the current tile can be placed (any rotation) */
   legalCellIds?: number[];
+  corridorCellIds?: number[];
   myBaseCellId?: number | null;
   interactionMode?: "placement" | "combat" | "other";
 }
@@ -261,6 +262,7 @@ export class PlanetView {
     );
     const baseSet = new Set(data.baseCellIds);
     const legalSet = new Set(data.legalCellIds ?? []);
+    const corridorSet = new Set(data.corridorCellIds ?? []);
     const myBase = data.myBaseCellId ?? null;
     const towerOccupied = new Set(data.towers.map((t) => t.cellId));
 
@@ -292,20 +294,21 @@ export class PlanetView {
       let color = 0x152430;
       let emissive = 0x000000;
       let emissiveIntensity = 0;
+      if (corridorSet.has(cell.id) && !routeIds.has(cell.id) && !baseSet.has(cell.id)) {
+        color = 0x243038;
+        emissive = 0x152028;
+        emissiveIntensity = 0.15;
+      }
       if (routeIds.has(cell.id)) {
         color = 0x2a3840;
         emissive = 0x1a2828;
         emissiveIntensity = 0.12;
       }
       if (baseSet.has(cell.id)) {
-        color = 0xff7a3d;
-        emissive = 0xff5520;
-        emissiveIntensity = 0.45;
-      }
-      if (myBase === cell.id) {
-        color = 0x5cff9a;
-        emissive = 0x2aff70;
-        emissiveIntensity = 0.75;
+        // Stone plinth under the castle (not team/castle colours)
+        color = myBase === cell.id ? 0x3d4f5c : 0x4a4038;
+        emissive = myBase === cell.id ? 0x203040 : 0x2a2018;
+        emissiveIntensity = 0.22;
       }
       if (legalSet.has(cell.id)) {
         color = 0x4dffb0;
@@ -543,16 +546,18 @@ export class PlanetView {
       const cell = cellMap.get(p.baseCellId);
       if (!cell) continue;
       const isMine = data.myBaseCellId === p.baseCellId;
-      const color = isMine ? "#5cff9a" : (ownerColor.get(p.id) ?? "#fff");
-      const emissive = isMine ? "#2aff70" : p.alive ? 0x222222 : 0x550000;
-      const castle = this.makeCastle(color, emissive, isMine ? 0.85 : 0.35);
+      // Castles: cream stone for you, team colour for others — never match plinth
+      const color = isMine ? "#e8dcc8" : (ownerColor.get(p.id) ?? "#c4b8a8");
+      const emissive = isMine ? "#8a7a50" : p.alive ? 0x221810 : 0x550000;
+      const castle = this.makeCastle(color, emissive, isMine ? 0.45 : 0.25);
       const outward = new THREE.Vector3(
         cell.center.x,
         cell.center.y,
         cell.center.z,
       ).normalize();
-      castle.position.copy(outward).multiplyScalar(1.1);
-      // Local +Y is "up" the tower; align to surface normal
+      // Sit on the pentagon surface (not floating in space)
+      castle.position.copy(outward).multiplyScalar(1.02);
+      castle.scale.setScalar(0.85);
       castle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), outward);
       castle.userData.cellId = p.baseCellId;
       castle.traverse((obj) => {
@@ -562,14 +567,14 @@ export class PlanetView {
 
       if (isMine) {
         const ring = new THREE.Mesh(
-          new THREE.TorusGeometry(0.13, 0.012, 8, 24),
+          new THREE.TorusGeometry(0.11, 0.01, 8, 24),
           new THREE.MeshStandardMaterial({
-            color: 0x5cff9a,
-            emissive: 0x5cff9a,
-            emissiveIntensity: 0.7,
+            color: 0x7eb8ff,
+            emissive: 0x3a80d0,
+            emissiveIntensity: 0.55,
           }),
         );
-        ring.position.copy(outward).multiplyScalar(1.085);
+        ring.position.copy(outward).multiplyScalar(1.018);
         ring.lookAt(0, 0, 0);
         ring.userData.cellId = p.baseCellId;
         this.markers.add(ring);

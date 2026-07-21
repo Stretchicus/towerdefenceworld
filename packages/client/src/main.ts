@@ -63,10 +63,11 @@ interface MatchState {
     pathIndex?: number;
     moveCooldown?: number;
   }[];
+  corridorCellIds?: number[];
   bodMoveEveryTicks?: number;
 }
 
-const CLIENT_BUILD = "v0.1.8";
+const CLIENT_BUILD = "v0.1.9";
 const TOWER_COST = { stone: 25, power: 10 };
 
 const app = document.getElementById("app")!;
@@ -463,7 +464,7 @@ function renderMatch(): void {
   const turnBanner =
     m.phase === "placement" && m.placementMode === "manual"
       ? myTurn
-        ? `<p class="turn-banner yours">Your turn — place on a green cell (${m.bagIndex + 1}/${m.bagTotal}). Your base = bright green ring.</p>`
+        ? `<p class="turn-banner yours">Your turn — place on a green cell to extend the shared corridors (${m.bagIndex + 1}/${m.bagTotal}). One path per base pair; sections may be shared.</p>`
         : `<p class="turn-banner">Waiting for ${turnPlayer?.name ?? "…"} (${m.bagIndex}/${m.bagTotal})</p>`
       : m.phase === "placement"
         ? `<p class="turn-banner">Auto-placing routes…</p>`
@@ -476,8 +477,8 @@ function renderMatch(): void {
       ${tilePanel}
       <div class="legend">
         <span><i class="swatch route"></i> Route</span>
-        <span><i class="swatch base"></i> Enemy base</span>
-        <span><i class="swatch mine"></i> Your base</span>
+        <span><i class="swatch base"></i> Base plinth</span>
+        <span><i class="swatch mine"></i> Your castle</span>
         <span><i class="swatch legal"></i> Legal place</span>
         <span><i class="swatch pad"></i> Tower pad</span>
       </div>
@@ -572,6 +573,7 @@ function renderMatch(): void {
     bodMoveEveryTicks: m.bodMoveEveryTicks ?? 10,
     players: m.players,
     legalCellIds: myTurn ? legalCellIds : [],
+    corridorCellIds: m.corridorCellIds ?? [],
     myBaseCellId: self?.baseCellId ?? null,
     interactionMode:
       m.phase === "placement"

@@ -61,6 +61,44 @@ describe("placement", () => {
     );
     assert.ok(path && path.length >= 1);
   });
+
+  it("corridor network links every base pair without dead-end stubs", () => {
+    const match = createMatch({
+      id: "corr",
+      seed: 3,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 3,
+        seatCount: 3,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: true },
+        { id: "p2", name: "B", isAi: true },
+        { id: "p3", name: "C", isAi: true },
+      ],
+    });
+    assert.equal(match.phase, "combat");
+    const bases = match.planet.baseCellIds;
+    assert.equal(bases.length, 3);
+    for (let i = 0; i < bases.length; i++) {
+      for (let j = i + 1; j < bases.length; j++) {
+        const path = findPath(match.routeGraph, bases[i]!, bases[j]!);
+        assert.ok(path && path.length >= 2, `path ${i}-${j}`);
+      }
+    }
+    // Corridor cells only: every placed non-base tile is on a corridor cell
+    for (const [id, placed] of match.placement.placed) {
+      if (match.planet.baseCellIds.includes(id)) continue;
+      assert.ok(
+        match.corridors.cellIds.has(id),
+        `non-corridor placement ${id}`,
+      );
+      void placed;
+    }
+  });
 });
 
 describe("match combat", () => {

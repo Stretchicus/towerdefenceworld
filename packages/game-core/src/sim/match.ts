@@ -10,16 +10,19 @@ import {
 } from "../config.js";
 import { createRng } from "../rng.js";
 import { buildPlanet } from "../planet/goldberg.js";
-import { generateTileBag } from "../tiles/bag.js";
+import {
+  buildCorridorNetwork,
+  fillCorridorPlacement,
+  findLegalCorridorPlacements,
+  generateCorridorBag,
+  isLegalCorridorPlacement,
+  type CorridorNetwork,
+} from "../tiles/corridors.js";
 import {
   autoBridge,
-  autoPlaceBag,
   basesConnected,
   buildRouteGraph,
   createPlacementState,
-  findLegalPlacements,
-  isLegalPlacement,
-  placeTile,
   type PlacementState,
 } from "../tiles/placement.js";
 import { findPath, pathLength } from "./pathfinding.js";
@@ -109,6 +112,7 @@ export interface MatchState {
   routeGraph: Map<number, number[]>;
   /** Pulses while waiting on an AI placement seat (throttle) */
   aiPlacementPulse: number;
+  corridors: CorridorNetwork;
 }
 
 export function assignTeams(
@@ -150,7 +154,16 @@ export function createMatch(input: CreateMatchInput): MatchState {
   const resources = activeResources(config, settings.resourceCount);
   const planet = buildPlanet(settings.worldSize, settings.seatCount);
   const placement = createPlacementState(planet);
-  const tileBag = generateTileBag(config, settings.worldSize, input.seed);
+  const corridors = buildCorridorNetwork(planet, planet.baseCellIds);
+  const rngBag = createRng(input.seed);
+  const tileBag =
+    settings.placementMode === "manual"
+      ? generateCorridorBag(corridors, planet, planet.baseCellIds, {
+          towerPointChance: config.towerPointChance,
+          mineChance: config.mineChance,
+          rng: rngBag,
+        })
+      : []; // auto fills corridors directly — no bag
   const teams = assignTeams(
     settings.mode,
     input.seats.map((s) => s.id),
@@ -205,6 +218,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
     nextEntityId: 1,
     routeGraph: buildRouteGraph(placement),
     aiPlacementPulse: 0,
+    corridors,
   };
 
   if (settings.placementMode === "auto") {
@@ -218,13 +232,22 @@ export function createMatch(input: CreateMatchInput): MatchState {
 
 function runAutoPlacement(state: MatchState): void {
   const rng = createRng(state.seed ^ 0x9e3779b9);
-  const remaining = state.tileBag.slice(state.bagIndex);
-  autoPlaceBag(state.placement, remaining, rng);
+  fillCorridorPlacement(state.placement, state.corridors, {
+    towerPointChance: state.config.towerPointChance,
+    mineChance: state.config.mineChance,
+    rng,
+  });
   state.bagIndex = state.tileBag.length;
   finishPlacement(state);
 }
 
 export function finishPlacement(state: MatchState): void {
+  // Ensure full corridor network (no missing segments / dead ends)
+  fillCorridorPlacement(state.placement, state.corridors, {
+    towerPointChance: state.config.towerPointChance,
+    mineChance: state.config.mineChance,
+    rng: createRng(state.seed ^ 0x51f),
+  });
   if (!basesConnected(state.placement)) {
     autoBridge(state.placement);
   }
@@ -258,12 +281,28 @@ export function intentPlaceTile(
   if (!tile) return { ok: false, error: "bag_empty" };
 
   let rot = rotation;
-  if (!isLegalPlacement(state.placement, cellId, tile, rot)) {
+  if (
+    !isLegalCorridorPlacement(
+      state.placement,
+      state.corridors,
+      cellId,
+      tile,
+      rot,
+    )
+  ) {
     const cell = state.planet.cells[cellId];
     if (!cell) return { ok: false, error: "illegal" };
     let found = false;
     for (let r = 0; r < cell.sides; r++) {
-      if (isLegalPlacement(state.placement, cellId, tile, r)) {
+      if (
+        isLegalCorridorPlacement(
+          state.placement,
+          state.corridors,
+          cellId,
+          tile,
+          r,
+        )
+      ) {
         rot = r;
         found = true;
         break;
@@ -272,9 +311,15 @@ export function intentPlaceTile(
     if (!found) return { ok: false, error: "illegal" };
   }
 
-  if (!placeTile(state.placement, cellId, tile, rot)) {
-    return { ok: false, error: "illegal" };
-  }
+  // Force place with exact corridor mask after validating
+  const required = state.corridors.requiredOpen.get(cellId)!;
+  const cell = state.planet.cells[cellId]!;
+  state.placement.placed.set(cellId, {
+    cellId,
+    tile,
+    rotation: rot,
+    connections: required.slice(0, cell.sides),
+  });
   state.bagIndex++;
   state.routeGraph = buildRouteGraph(state.placement);
   advancePlacementTurn(state);
@@ -285,7 +330,12 @@ function skipUnplaceableTiles(state: MatchState): void {
   while (state.bagIndex < state.tileBag.length) {
     const tile = currentTile(state);
     if (!tile) break;
-    if (findLegalPlacements(state.placement, tile).length > 0) return;
+    if (
+      findLegalCorridorPlacements(state.placement, state.corridors, tile)
+        .length > 0
+    ) {
+      return;
+    }
     state.bagIndex++;
   }
   if (state.bagIndex >= state.tileBag.length) {
@@ -319,7 +369,11 @@ export function runAiPlacement(state: MatchState): void {
 
   const tile = currentTile(state);
   if (!tile) return;
-  const options = findLegalPlacements(state.placement, tile);
+  const options = findLegalCorridorPlacements(
+    state.placement,
+    state.corridors,
+    tile,
+  );
   if (options.length === 0) {
     skipUnplaceableTiles(state);
     return;
@@ -818,9 +872,16 @@ export function serializeMatch(state: MatchState) {
       state.phase === "placement" && state.settings.placementMode === "manual"
         ? (() => {
             const tile = currentTile(state);
-            return tile ? findLegalPlacements(state.placement, tile) : [];
+            return tile
+              ? findLegalCorridorPlacements(
+                  state.placement,
+                  state.corridors,
+                  tile,
+                )
+              : [];
           })()
         : [],
+    corridorCellIds: [...state.corridors.cellIds],
     winnerIds: state.winnerIds,
     combatEndsAtTick: state.combatEndsAtTick,
     planet: {

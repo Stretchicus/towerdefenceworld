@@ -32,6 +32,14 @@ export {
   nextLegalRotation,
 } from "./tiles/placement.js";
 export type { PlacementState } from "./tiles/placement.js";
+export {
+  buildCorridorNetwork,
+  fillCorridorPlacement,
+  findLegalCorridorPlacements,
+  generateCorridorBag,
+  isLegalCorridorPlacement,
+} from "./tiles/corridors.js";
+export type { CorridorNetwork } from "./tiles/corridors.js";
 export { findPath, pathLength } from "./sim/pathfinding.js";
 export {
   createMatch,
