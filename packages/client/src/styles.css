@@ -60,11 +60,19 @@ header.top {
   color: var(--danger) !important;
 }
 
-.hint {
-  font-size: 0.78rem;
-  color: var(--muted);
-  margin: 0.25rem 0 0.5rem;
-  line-height: 1.35;
+.turn-banner {
+  font-size: 0.9rem;
+  padding: 0.5rem 0.65rem;
+  margin: 0.4rem 0 0.6rem;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: 4px;
+}
+
+.turn-banner.yours {
+  border-color: var(--accent2);
+  color: var(--accent2);
+  font-weight: 600;
 }
 
 .legend {

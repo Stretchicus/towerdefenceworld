@@ -14,6 +14,7 @@ import {
   findPath,
   serializeMatch,
   tickMatch,
+  runAiPlacement,
 } from "./index.js";
 
 describe("goldberg planet", () => {
@@ -135,5 +136,31 @@ describe("match combat", () => {
     tickMatch(match);
     const after = match.players[0]!.bank.stone ?? 0;
     assert.ok(after >= startStone + 50, `expected loot, ${startStone} -> ${after}`);
+  });
+
+  it("manual placement waits on human; AI does not dump the bag", () => {
+    const match = createMatch({
+      id: "manual",
+      seed: 99,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "manual",
+        resourceCount: 3,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "Human", isAi: false },
+        { id: "p2", name: "Bot", isAi: true },
+      ],
+    });
+    assert.equal(match.phase, "placement");
+    assert.equal(match.settings.placementMode, "manual");
+    assert.equal(match.currentSeat, 0);
+    const placedBefore = match.placement.placed.size;
+    for (let i = 0; i < 40; i++) runAiPlacement(match);
+    assert.equal(match.placement.placed.size, placedBefore);
+    assert.equal(match.currentSeat, 0);
   });
 });

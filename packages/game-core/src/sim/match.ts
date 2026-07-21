@@ -104,6 +104,8 @@ export interface MatchState {
   combatEndsAtTick: number | null;
   nextEntityId: number;
   routeGraph: Map<number, number[]>;
+  /** Pulses while waiting on an AI placement seat (throttle) */
+  aiPlacementPulse: number;
 }
 
 export function assignTeams(
@@ -199,10 +201,13 @@ export function createMatch(input: CreateMatchInput): MatchState {
     combatEndsAtTick: null,
     nextEntityId: 1,
     routeGraph: buildRouteGraph(placement),
+    aiPlacementPulse: 0,
   };
 
   if (settings.placementMode === "auto") {
     runAutoPlacement(state);
+  } else {
+    skipUnplaceableTiles(state);
   }
 
   return state;
@@ -257,21 +262,51 @@ export function intentPlaceTile(
   return { ok: true };
 }
 
+function skipUnplaceableTiles(state: MatchState): void {
+  while (state.bagIndex < state.tileBag.length) {
+    const tile = currentTile(state);
+    if (!tile) break;
+    if (findLegalPlacements(state.placement, tile).length > 0) return;
+    state.bagIndex++;
+  }
+  if (state.bagIndex >= state.tileBag.length) {
+    finishPlacement(state);
+  }
+}
+
 function advancePlacementTurn(state: MatchState): void {
   if (state.bagIndex >= state.tileBag.length) {
     finishPlacement(state);
     return;
   }
-  // Skip if no legal moves for current tile — discard and continue
-  const tile = currentTile(state);
-  if (tile && findLegalPlacements(state.placement, tile).length === 0) {
-    state.bagIndex++;
-    if (state.bagIndex >= state.tileBag.length) {
-      finishPlacement(state);
-      return;
-    }
-  }
   state.currentSeat = (state.currentSeat + 1) % state.players.length;
+  state.aiPlacementPulse = 0;
+  skipUnplaceableTiles(state);
+}
+
+/** Simple AI intents for a seat — one tile every ~1.2s at 10Hz pulses */
+export function runAiPlacement(state: MatchState): void {
+  if (state.phase !== "placement" || state.settings.placementMode !== "manual") {
+    return;
+  }
+  const seat = state.players[state.currentSeat];
+  if (!seat?.isAi) {
+    state.aiPlacementPulse = 0;
+    return;
+  }
+  state.aiPlacementPulse++;
+  if (state.aiPlacementPulse < 12) return;
+  state.aiPlacementPulse = 0;
+
+  const tile = currentTile(state);
+  if (!tile) return;
+  const options = findLegalPlacements(state.placement, tile);
+  if (options.length === 0) {
+    skipUnplaceableTiles(state);
+    return;
+  }
+  const pick = options[0]!;
+  intentPlaceTile(state, seat.id, pick.cellId, pick.rotation);
 }
 
 export function pickSpawnTarget(state: MatchState, owner: PlayerState): string {
@@ -283,7 +318,6 @@ export function pickSpawnTarget(state: MatchState, owner: PlayerState): string {
   const enabled = enemies.filter((e) => owner.targetEnabled[e.id] !== false);
   const pool = enabled.length > 0 ? enabled : enemies;
 
-  // least-assigned / round-robin with path-length tiebreak
   let best = pool[0]!;
   let bestCount = owner.assignCounts[best.id] ?? 0;
   let bestPath = pathLength(
@@ -712,25 +746,6 @@ function checkWin(state: MatchState): void {
   }
 }
 
-/** Simple AI intents for a seat */
-export function runAiPlacement(state: MatchState): void {
-  if (state.phase !== "placement" || state.settings.placementMode !== "manual") {
-    return;
-  }
-  const seat = state.players[state.currentSeat];
-  if (!seat?.isAi) return;
-  const tile = currentTile(state);
-  if (!tile) return;
-  const options = findLegalPlacements(state.placement, tile);
-  if (options.length === 0) {
-    state.bagIndex++;
-    advancePlacementTurn(state);
-    return;
-  }
-  const pick = options[0]!;
-  intentPlaceTile(state, seat.id, pick.cellId, pick.rotation);
-}
-
 export function runAiCombat(state: MatchState): void {
   if (state.phase !== "combat") return;
   // Throttle: act every 25 ticks so humans can claim pads
@@ -767,6 +782,8 @@ export function serializeMatch(state: MatchState) {
     bagIndex: state.bagIndex,
     bagTotal: state.tileBag.length,
     currentSeat: state.currentSeat,
+    currentPlayerId: state.players[state.currentSeat]?.id ?? null,
+    placementMode: state.settings.placementMode,
     currentTile: currentTile(state),
     winnerIds: state.winnerIds,
     combatEndsAtTick: state.combatEndsAtTick,

@@ -25,6 +25,8 @@ interface MatchState {
   bagIndex: number;
   bagTotal: number;
   currentSeat: number;
+  currentPlayerId: string | null;
+  placementMode: string;
   currentTile: unknown;
   winnerIds: string[];
   planet: {
@@ -51,7 +53,7 @@ interface MatchState {
 
 const TOWER_COST = { stone: 25, power: 10 };
 /** Bump when shipping client UX so deploy can be verified in the header */
-const CLIENT_BUILD = "v0.1.2";
+const CLIENT_BUILD = "v0.1.3";
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
@@ -265,6 +267,23 @@ function renderLobby(): void {
     socket.send({ type: "ready" });
   });
   document.getElementById("btn-start")?.addEventListener("click", () => {
+    // Apply lobby form before start — dropdown alone does not update the server
+    socket.send({
+      type: "setLobby",
+      settings: {
+        mode: (document.getElementById("mode") as HTMLSelectElement).value,
+        winRule: (document.getElementById("win") as HTMLSelectElement).value,
+        worldSize: (document.getElementById("world") as HTMLSelectElement).value,
+        placementMode: (document.getElementById("place") as HTMLSelectElement)
+          .value,
+        seatCount: Number(
+          (document.getElementById("seats") as HTMLSelectElement).value,
+        ),
+        resourceCount: Number(
+          (document.getElementById("res") as HTMLSelectElement).value,
+        ),
+      },
+    });
     socket.send({ type: "start" });
   });
 }
@@ -340,9 +359,24 @@ function renderMatch(): void {
       </div>`
       : `<p class="hint">Gold tubes = routes. Orange cells = bases.</p>`;
 
+  const turnPlayer = m.players[m.currentSeat];
+  const myTurn =
+    m.phase === "placement" &&
+    m.placementMode === "manual" &&
+    turnPlayer?.id === playerId;
+  const turnBanner =
+    m.phase === "placement" && m.placementMode === "manual"
+      ? myTurn
+        ? `<p class="turn-banner yours">Your turn — click a cell next to the route to place tile ${m.bagIndex + 1}/${m.bagTotal}</p>`
+        : `<p class="turn-banner">Waiting for ${turnPlayer?.name ?? "…"} to place (${m.bagIndex}/${m.bagTotal})</p>`
+      : m.phase === "placement"
+        ? `<p class="turn-banner">Auto-placing routes…</p>`
+        : "";
+
   hud.innerHTML = `
     <div class="panel side-left">
       <h2>${m.phase.toUpperCase()} · T${m.tick}</h2>
+      ${turnBanner}
       <div class="legend">
         <span><i class="swatch route"></i> Route</span>
         <span><i class="swatch base"></i> Base</span>

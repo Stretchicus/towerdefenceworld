@@ -6,7 +6,7 @@
 - **Static client** = contents of `packages/client/dist/` (Vite build)
 - **Apache** serves that folder and reverse-proxies `/ws` → Node
 
-Header shows **build `v0.1.2`** (or newer). If you do not see that version string, the browser is still on an old client.
+Header shows **build `v0.1.3`** (or newer). If you do not see that version string, the browser is still on an old client.
 
 ---
 
@@ -77,11 +77,12 @@ curl -s http://127.0.0.1:3101/health
 ### 5. Prove the browser got the new client
 
 1. Hard refresh: Ctrl+Shift+R (or incognito).
-2. Top bar must show **`v0.1.2`** (or higher) next to the status.
+2. Top bar must show **`v0.1.3`** (or higher) next to the title.
 3. Create/join a room → **Leave room** appears top-right.
-4. In combat: gold route tubes + cyan tower pads + **Build tower** list on the right.
+4. Manual placement: turn banner says whose turn; AI places slowly (~1s), not a flood.
+5. In combat: gold route tubes + cyan tower pads + **Build tower** list on the right.
 
-If health is ok but the UI has no `v0.1.2`, Apache is serving the **wrong directory** or a cached old `index.html`.
+If health is ok but the UI has no `v0.1.3`, Apache is serving the **wrong directory** or a cached old `index.html`.
 
 Check which files Apache actually serves:
 

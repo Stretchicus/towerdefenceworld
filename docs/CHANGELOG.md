@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.3 — 2026-07-21
+
+### Fixed
+
+- Manual placement: Start applies lobby form (was stuck on default Auto)
+- AI places one tile ~every 1.2s on its turn, not 10/sec
+- Turn banner shows whose placement turn it is
+
 ## 0.1.1 — 2026-07-21
 
 ### Changed
