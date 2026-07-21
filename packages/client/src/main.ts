@@ -82,22 +82,24 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.18";
+const CLIENT_BUILD = "v0.1.19";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
   <header class="top">
-    <h1>TOWER DEFENCE WORLD <span class="build-tag">${CLIENT_BUILD}</span></h1>
-    <div class="header-actions">
-      <div class="meta" id="status">Connecting…</div>
-      <button type="button" id="btn-leave" class="secondary leave-btn" hidden>Leave room</button>
+    <div class="top-row">
+      <h1>TOWER DEFENCE WORLD <span class="build-tag">${CLIENT_BUILD}</span></h1>
+      <div class="header-actions">
+        <div class="meta" id="status">Connecting…</div>
+        <button type="button" id="btn-leave" class="secondary leave-btn" hidden>Leave room</button>
+      </div>
+    </div>
+    <div class="health-bar" id="health-bar" hidden>
+      <div class="health-bar-track" id="health-bar-track"></div>
     </div>
   </header>
-  <div class="health-bar" id="health-bar" hidden>
-    <div class="health-bar-track" id="health-bar-track"></div>
-  </div>
   <div id="viewport">
     <div class="hud" id="hud"></div>
   </div>
@@ -187,8 +189,7 @@ function updateHealthBar(m: MatchState | null): void {
       const mine = p.id === playerId;
       const dead = !p.alive || hp <= 0;
       return `<div class="health-seg ${mine ? "mine" : ""} ${dead ? "dead" : ""}" style="flex:${flex} 1 0;background:${color}" title="${p.name}: ${hp.toFixed(0)} HP">
-        <span class="health-seg-label">${p.name}${mine ? " ←" : ""}</span>
-        <span class="health-seg-hp">${hp.toFixed(0)}</span>
+        <span class="health-seg-label">${p.name}${mine ? " ←" : ""} · ${hp.toFixed(0)}</span>
       </div>`;
     })
     .join("");
