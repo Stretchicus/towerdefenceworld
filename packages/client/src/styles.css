@@ -102,10 +102,25 @@ header.top {
   background: #ff7a3d;
 }
 
-.swatch.pad {
-  background: #3dd6c6;
-  border-radius: 50%;
-  box-shadow: 0 0 6px #3dd6c6;
+.swatch.mine {
+  background: #5cff9a;
+  box-shadow: 0 0 6px #5cff9a;
+}
+
+.swatch.legal {
+  background: #4dffb0;
+  box-shadow: 0 0 6px #4dffb0;
+}
+
+.tile-preview-wrap {
+  margin: 0.4rem 0 0.75rem;
+}
+
+.tile-preview {
+  width: 120px;
+  height: 120px;
+  display: block;
+  margin: 0.25rem 0;
 }
 
 .build-list {

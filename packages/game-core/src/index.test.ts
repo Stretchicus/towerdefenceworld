@@ -25,6 +25,9 @@ describe("goldberg planet", () => {
       assert.equal(pents.length, 12, size);
       assert.ok(planet.cells.length > 12);
       assert.equal(planet.baseCellIds.length, 4);
+      for (const id of planet.baseCellIds) {
+        assert.equal(planet.cells[id]!.sides, 5, "bases must be pentagons");
+      }
     }
   });
 

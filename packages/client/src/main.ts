@@ -27,7 +27,14 @@ interface MatchState {
   currentSeat: number;
   currentPlayerId: string | null;
   placementMode: string;
-  currentTile: unknown;
+  currentTile: {
+    id?: string;
+    routeKind?: string;
+    connections?: boolean[];
+    hasTowerPoint?: boolean;
+    hasMine?: boolean;
+  } | null;
+  legalPlacements: { cellId: number; rotation: number }[];
   winnerIds: string[];
   planet: {
     baseCellIds: number[];
@@ -51,9 +58,8 @@ interface MatchState {
   bods: { cellId: number; ownerId: string }[];
 }
 
+const CLIENT_BUILD = "v0.1.5";
 const TOWER_COST = { stone: 25, power: 10 };
-/** Bump when shipping client UX so deploy can be verified in the header */
-const CLIENT_BUILD = "v0.1.4";
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
@@ -85,6 +91,8 @@ let lastMatch: MatchState | null = null;
 let lastError = "";
 let planetBuiltFor = "";
 let selectedBuildCell: number | null = null;
+let placementRotation = 0;
+let hoverCellId: number | null = null;
 
 const params = new URLSearchParams(location.search);
 const joinRoom = params.get("room");
@@ -138,6 +146,81 @@ function canAffordTower(self: NonNullable<ReturnType<typeof me>>): boolean {
     (self.bank.stone ?? 0) >= TOWER_COST.stone &&
     (self.bank.power ?? 0) >= TOWER_COST.power
   );
+}
+
+function tilePreviewSvg(
+  connections: boolean[],
+  rotation: number,
+  sides = 6,
+): string {
+  const r = ((rotation % sides) + sides) % sides;
+  const conn = connections.slice(0, sides).map((_, i) => {
+    const src = connections[(i - r + sides) % sides] ?? false;
+    return src;
+  });
+  const cx = 50;
+  const cy = 50;
+  const rad = 36;
+  const pts: string[] = [];
+  for (let i = 0; i < sides; i++) {
+    const a = (Math.PI * 2 * i) / sides - Math.PI / 2;
+    pts.push(`${cx + rad * Math.cos(a)},${cy + rad * Math.sin(a)}`);
+  }
+  const edges: string[] = [];
+  for (let i = 0; i < sides; i++) {
+    const a0 = (Math.PI * 2 * i) / sides - Math.PI / 2;
+    const a1 = (Math.PI * 2 * (i + 1)) / sides - Math.PI / 2;
+    const mx = cx + rad * 0.72 * Math.cos((a0 + a1) / 2);
+    const my = cy + rad * 0.72 * Math.sin((a0 + a1) / 2);
+    const open = conn[i];
+    edges.push(
+      `<line x1="${cx}" y1="${cy}" x2="${mx}" y2="${my}" stroke="${open ? "#ffe566" : "#334450"}" stroke-width="${open ? 5 : 2}" stroke-linecap="round"/>`,
+    );
+  }
+  return `<svg class="tile-preview" viewBox="0 0 100 100" aria-label="Current tile">
+    <polygon points="${pts.join(" ")}" fill="#0c1c28" stroke="#3dd6c6" stroke-width="2"/>
+    ${edges.join("")}
+    <circle cx="${cx}" cy="${cy}" r="4" fill="#3dd6c6"/>
+  </svg>`;
+}
+
+function rotatePlacement(dir: 1 | -1): void {
+  if (!lastMatch || lastMatch.phase !== "placement") return;
+  const tile = lastMatch.currentTile;
+  if (!tile?.connections) return;
+  const legal = lastMatch.legalPlacements ?? [];
+  if (hoverCellId !== null) {
+    const forCell = legal
+      .filter((p) => p.cellId === hoverCellId)
+      .map((p) => p.rotation)
+      .sort((a, b) => a - b);
+    if (forCell.length) {
+      const idx = forCell.indexOf(placementRotation);
+      const next =
+        forCell[
+          (((idx < 0 ? 0 : idx) + dir) % forCell.length + forCell.length) %
+            forCell.length
+        ]!;
+      placementRotation = next;
+      paint();
+      return;
+    }
+  }
+  // No hover / no legal on hover: step rotation, snap to next globally useful rot
+  const sides = 6;
+  placementRotation = (((placementRotation + dir) % sides) + sides) % sides;
+  const any = legal.find((p) => p.rotation === placementRotation);
+  if (!any && legal.length) {
+    // jump to next legal rotation that appears in the list
+    for (let step = 0; step < sides; step++) {
+      const r = (((placementRotation + dir * step) % sides) + sides) % sides;
+      if (legal.some((p) => p.rotation === r)) {
+        placementRotation = r;
+        break;
+      }
+    }
+  }
+  paint();
 }
 
 function renderLobby(): void {
@@ -352,11 +435,28 @@ function renderMatch(): void {
     m.phase === "placement" &&
     m.placementMode === "manual" &&
     turnPlayer?.id === playerId;
+  const legal = m.legalPlacements ?? [];
+  const legalCellIds = [...new Set(legal.map((p) => p.cellId))];
+  const tile = m.currentTile;
+  const tilePanel =
+    m.phase === "placement" && m.placementMode === "manual" && tile?.connections
+      ? `<h2>CURRENT TILE</h2>
+        <div id="tile-preview-wrap" class="tile-preview-wrap">
+          ${tilePreviewSvg(tile.connections, placementRotation, 6)}
+          <p class="hint">${tile.routeKind ?? "route"}${tile.hasTowerPoint ? " · tower pad" : ""}${tile.hasMine ? " · mine" : ""} · rot ${placementRotation}</p>
+          <div class="row">
+            <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
+            <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
+          </div>
+          <p class="hint">PC: mouse wheel rotates (snaps to next valid on hovered green cell). Mobile: twist with two fingers or use buttons. Click a <strong>green</strong> cell to place.</p>
+        </div>`
+      : "";
+
   const turnBanner =
     m.phase === "placement" && m.placementMode === "manual"
       ? myTurn
-        ? `<p class="turn-banner yours">Your turn — click a cell next to the route to place tile ${m.bagIndex + 1}/${m.bagTotal}</p>`
-        : `<p class="turn-banner">Waiting for ${turnPlayer?.name ?? "…"} to place (${m.bagIndex}/${m.bagTotal})</p>`
+        ? `<p class="turn-banner yours">Your turn — place on a green cell (${m.bagIndex + 1}/${m.bagTotal}). Your base = bright green ring.</p>`
+        : `<p class="turn-banner">Waiting for ${turnPlayer?.name ?? "…"} (${m.bagIndex}/${m.bagTotal})</p>`
       : m.phase === "placement"
         ? `<p class="turn-banner">Auto-placing routes…</p>`
         : "";
@@ -365,15 +465,17 @@ function renderMatch(): void {
     <div class="panel side-left">
       <h2>${m.phase.toUpperCase()} · T${m.tick}</h2>
       ${turnBanner}
+      ${tilePanel}
       <div class="legend">
         <span><i class="swatch route"></i> Route</span>
-        <span><i class="swatch base"></i> Base</span>
+        <span><i class="swatch base"></i> Enemy base</span>
+        <span><i class="swatch mine"></i> Your base</span>
+        <span><i class="swatch legal"></i> Legal place</span>
         <span><i class="swatch pad"></i> Tower pad</span>
       </div>
       <div class="bank">${bank}</div>
       <p style="font-size:0.85rem;color:var(--muted);margin-top:0.6rem">
         HP: ${self?.baseHp.toFixed(0) ?? "—"}
-        ${m.phase === "placement" ? `· Tile ${m.bagIndex}/${m.bagTotal}` : ""}
         ${m.phase === "combat" ? `· Free pads: ${pads.length}` : ""}
       </p>
       <p class="error">${lastError}</p>
@@ -445,6 +547,12 @@ function renderMatch(): void {
   document.getElementById("btn-exit-end")?.addEventListener("click", () => {
     leaveRoom();
   });
+  document.getElementById("btn-rot-cw")?.addEventListener("click", () => {
+    rotatePlacement(1);
+  });
+  document.getElementById("btn-rot-ccw")?.addEventListener("click", () => {
+    rotatePlacement(-1);
+  });
 
   const viewData: PlanetViewData = {
     cells: m.planet.cells,
@@ -454,21 +562,35 @@ function renderMatch(): void {
     mines: m.mines,
     bods: m.bods,
     players: m.players,
+    legalCellIds: myTurn ? legalCellIds : [],
+    myBaseCellId: self?.baseCellId ?? null,
+    interactionMode:
+      m.phase === "placement"
+        ? "placement"
+        : m.phase === "combat"
+          ? "combat"
+          : "other",
   };
-  const structKey = `${m.planet.cells.length}:${m.placed.length}:${m.towers.length}:${m.mines.length}`;
-  if (planetBuiltFor !== `${m.planet.cells.length}:${m.phase}`) {
+  const planetKey = `${m.planet.cells.length}:${m.phase}:${myTurn ? legalCellIds.join(",") : ""}:${self?.baseCellId ?? ""}`;
+  if (planetBuiltFor !== planetKey) {
     planet.setPlanet(viewData);
-    planetBuiltFor = `${m.planet.cells.length}:${m.phase}`;
+    planetBuiltFor = planetKey;
   } else {
     planet.refreshMarkers(viewData);
   }
-  void structKey;
 }
 
 planet.onCellClick = (cellId) => {
   if (!lastMatch) return;
   if (lastMatch.phase === "placement") {
-    socket.send({ type: "placeTile", cellId, rotation: 0 });
+    const legal = (lastMatch.legalPlacements ?? []).filter(
+      (p) => p.cellId === cellId,
+    );
+    const rotation =
+      legal.find((p) => p.rotation === placementRotation)?.rotation ??
+      legal[0]?.rotation ??
+      placementRotation;
+    socket.send({ type: "placeTile", cellId, rotation });
     return;
   }
   if (lastMatch.phase === "combat") {
@@ -479,8 +601,51 @@ planet.onCellClick = (cellId) => {
       socket.send({ type: "buildTower", cellId });
       return;
     }
-    if (placed?.tile.hasMine && !lastMatch.mines.some((x) => x.cellId === cellId)) {
+    if (
+      placed?.tile.hasMine &&
+      !lastMatch.mines.some((x) => x.cellId === cellId)
+    ) {
       socket.send({ type: "claimMine", cellId });
+    }
+  }
+};
+
+planet.onTileRotate = (dir) => rotatePlacement(dir);
+
+planet.onHoverCell = (cellId) => {
+  hoverCellId = cellId;
+  if (!lastMatch || lastMatch.phase !== "placement") return;
+  if (cellId === null) return;
+  const legal = (lastMatch.legalPlacements ?? []).filter(
+    (p) => p.cellId === cellId,
+  );
+  if (
+    legal.length &&
+    !legal.some((p) => p.rotation === placementRotation)
+  ) {
+    placementRotation = legal[0]!.rotation;
+    const wrap = document.getElementById("tile-preview-wrap");
+    const tile = lastMatch.currentTile;
+    if (wrap && tile?.connections) {
+      const svg = wrap.querySelector(".tile-preview");
+      if (svg) {
+        wrap.innerHTML = `
+          ${tilePreviewSvg(tile.connections, placementRotation, 6)}
+          <p class="hint">${tile.routeKind ?? "route"}${tile.hasTowerPoint ? " · tower pad" : ""}${tile.hasMine ? " · mine" : ""} · rot ${placementRotation}</p>
+          <div class="row">
+            <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
+            <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
+          </div>
+          <p class="hint">PC: mouse wheel rotates (snaps to next valid on hovered green cell). Mobile: twist with two fingers or use buttons. Click a <strong>green</strong> cell to place.</p>`;
+        document.getElementById("btn-rot-cw")?.addEventListener("click", () => {
+          rotatePlacement(1);
+        });
+        document
+          .getElementById("btn-rot-ccw")
+          ?.addEventListener("click", () => {
+            rotatePlacement(-1);
+          });
+      }
     }
   }
 };

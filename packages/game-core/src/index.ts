@@ -28,6 +28,8 @@ export {
   autoPlaceOne,
   autoPlaceBag,
   autoBridge,
+  legalRotationsForCell,
+  nextLegalRotation,
 } from "./tiles/placement.js";
 export type { PlacementState } from "./tiles/placement.js";
 export { findPath, pathLength } from "./sim/pathfinding.js";

@@ -18,6 +18,7 @@ import {
   buildRouteGraph,
   createPlacementState,
   findLegalPlacements,
+  isLegalPlacement,
   placeTile,
   type PlacementState,
 } from "../tiles/placement.js";
@@ -253,7 +254,23 @@ export function intentPlaceTile(
   if (!seat || seat.id !== playerId) return { ok: false, error: "not_your_turn" };
   const tile = currentTile(state);
   if (!tile) return { ok: false, error: "bag_empty" };
-  if (!placeTile(state.placement, cellId, tile, rotation)) {
+
+  let rot = rotation;
+  if (!isLegalPlacement(state.placement, cellId, tile, rot)) {
+    const cell = state.planet.cells[cellId];
+    if (!cell) return { ok: false, error: "illegal" };
+    let found = false;
+    for (let r = 0; r < cell.sides; r++) {
+      if (isLegalPlacement(state.placement, cellId, tile, r)) {
+        rot = r;
+        found = true;
+        break;
+      }
+    }
+    if (!found) return { ok: false, error: "illegal" };
+  }
+
+  if (!placeTile(state.placement, cellId, tile, rot)) {
     return { ok: false, error: "illegal" };
   }
   state.bagIndex++;
@@ -785,6 +802,13 @@ export function serializeMatch(state: MatchState) {
     currentPlayerId: state.players[state.currentSeat]?.id ?? null,
     placementMode: state.settings.placementMode,
     currentTile: currentTile(state),
+    legalPlacements:
+      state.phase === "placement" && state.settings.placementMode === "manual"
+        ? (() => {
+            const tile = currentTile(state);
+            return tile ? findLegalPlacements(state.placement, tile) : [];
+          })()
+        : [],
     winnerIds: state.winnerIds,
     combatEndsAtTick: state.combatEndsAtTick,
     planet: {

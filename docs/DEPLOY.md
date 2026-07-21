@@ -6,7 +6,7 @@
 - **Static client** = contents of `packages/client/dist/` (Vite build)
 - **Apache** serves that folder and reverse-proxies `/ws` → Node
 
-Header shows **build `v0.1.3`** (or newer). If you do not see that version string, the browser is still on an old client.
+Header shows **build `v0.1.5`** (or newer). If you do not see that version string, the browser is still on an old client.
 
 ---
 

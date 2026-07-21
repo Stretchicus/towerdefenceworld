@@ -255,20 +255,22 @@ function angleInPlane(
 
 function pickBaseCells(cells: PlanetCell[], seatCount: number): number[] {
   const n = Math.max(2, Math.min(4, seatCount));
-  // Farthest-point sampling on sphere from a fixed start
-  const start = cells.reduce(
+  // Bases sit on pentagons only (12 available on a Goldberg sphere)
+  const pool = cells.filter((c) => c.sides === 5);
+  const from = pool.length >= n ? pool : cells;
+  const start = from.reduce(
     (best, c) => (c.center.y > best.center.y ? c : best),
-    cells[0],
+    from[0]!,
   );
   const picked: number[] = [start.id];
   while (picked.length < n) {
     let bestId = -1;
     let bestMin = -1;
-    for (const c of cells) {
+    for (const c of from) {
       if (picked.includes(c.id)) continue;
       let minD = Infinity;
       for (const pid of picked) {
-        const d = dist(c.center, cells[pid].center);
+        const d = dist(c.center, cells[pid]!.center);
         if (d < minD) minD = d;
       }
       if (minD > bestMin) {
@@ -276,6 +278,7 @@ function pickBaseCells(cells: PlanetCell[], seatCount: number): number[] {
         bestId = c.id;
       }
     }
+    if (bestId < 0) break;
     picked.push(bestId);
   }
   return picked;

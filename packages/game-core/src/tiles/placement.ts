@@ -140,6 +140,38 @@ export function findLegalPlacements(
   return out;
 }
 
+export function legalRotationsForCell(
+  state: PlacementState,
+  tile: TileDef,
+  cellId: number,
+): number[] {
+  const cell = state.planet.cells[cellId];
+  if (!cell) return [];
+  const out: number[] = [];
+  for (let r = 0; r < cell.sides; r++) {
+    if (isLegalPlacement(state, cellId, tile, r)) out.push(r);
+  }
+  return out;
+}
+
+export function nextLegalRotation(
+  state: PlacementState,
+  tile: TileDef,
+  cellId: number,
+  fromRotation: number,
+  dir: 1 | -1,
+): number | null {
+  const legal = legalRotationsForCell(state, tile, cellId);
+  if (legal.length === 0) return null;
+  const cell = state.planet.cells[cellId]!;
+  const sides = cell.sides;
+  for (let step = 1; step <= sides; step++) {
+    const r = (((fromRotation + dir * step) % sides) + sides) % sides;
+    if (legal.includes(r)) return r;
+  }
+  return legal[0]!;
+}
+
 /** Route graph: undirected edges where both sides open */
 export function buildRouteGraph(state: PlacementState): Map<number, number[]> {
   const graph = new Map<number, number[]>();
