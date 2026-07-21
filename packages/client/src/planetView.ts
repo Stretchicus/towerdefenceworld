@@ -49,6 +49,7 @@ export class PlanetView {
   private lastBodData: PlanetViewData | null = null;
   private lastFrameMs = performance.now();
   private localCooldownRemain = new Map<string, number>();
+  private localBodPathIndex = new Map<string, number>();
   private drag = false;
   private moved = false;
   private prevX = 0;
@@ -786,20 +787,34 @@ export class PlanetView {
     return g;
   }
 
-  /** Create/update bod meshes; positions lerped along path edges */
+  /** Create/update bod meshes; motion is smoothed in render() without snapshot rewind */
   private syncBods(data: PlanetViewData): void {
     this.lastBodData = data;
-    const cellMap = new Map(data.cells.map((c) => [c.id, c]));
     const ownerColor = new Map<string, string>();
     data.players.forEach((p, i) => {
       ownerColor.set(p.id, TEAM_COLORS[i % TEAM_COLORS.length]!);
     });
-    const period = Math.max(1, data.bodMoveEveryTicks ?? 10);
     const seen = new Set<string>();
 
     for (const b of data.bods) {
       seen.add(b.id);
-      this.localCooldownRemain.set(b.id, b.moveCooldown ?? 0);
+      const idx = b.pathIndex ?? 0;
+      const serverCd = b.moveCooldown ?? 0;
+      const prevIdx = this.localBodPathIndex.get(b.id);
+      if (prevIdx === undefined || prevIdx !== idx) {
+        // New edge (or new bod): adopt server timing
+        this.localCooldownRemain.set(b.id, serverCd);
+        this.localBodPathIndex.set(b.id, idx);
+      } else {
+        const local = this.localCooldownRemain.get(b.id);
+        if (local === undefined) {
+          this.localCooldownRemain.set(b.id, serverCd);
+        } else {
+          // Never rewind — local may be ahead of the 10Hz snapshot
+          this.localCooldownRemain.set(b.id, Math.min(local, serverCd));
+        }
+      }
+
       let mesh = this.bodGroup.children.find(
         (c) => c.userData.bodId === b.id,
       ) as THREE.Mesh | undefined;
@@ -815,7 +830,6 @@ export class PlanetView {
         mesh.userData.bodId = b.id;
         this.bodGroup.add(mesh);
       }
-      this.placeBodMesh(mesh, b, cellMap, period, b.moveCooldown ?? 0);
     }
 
     for (const child of [...this.bodGroup.children]) {
@@ -823,6 +837,7 @@ export class PlanetView {
       if (!seen.has(id)) {
         this.bodGroup.remove(child);
         this.localCooldownRemain.delete(id);
+        this.localBodPathIndex.delete(id);
         if (child instanceof THREE.Mesh) {
           child.geometry.dispose();
           (child.material as THREE.Material).dispose();
