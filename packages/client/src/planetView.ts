@@ -543,35 +543,104 @@ export class PlanetView {
       const cell = cellMap.get(p.baseCellId);
       if (!cell) continue;
       const isMine = data.myBaseCellId === p.baseCellId;
-      const mesh = new THREE.Mesh(
-        new THREE.OctahedronGeometry(isMine ? 0.12 : 0.08),
-        new THREE.MeshStandardMaterial({
-          color: isMine ? "#5cff9a" : (ownerColor.get(p.id) ?? "#fff"),
-          emissive: isMine ? "#2aff70" : p.alive ? 0x333333 : 0x550000,
-          emissiveIntensity: isMine ? 0.9 : 0.4,
-        }),
-      );
-      mesh.position
-        .set(cell.center.x, cell.center.y, cell.center.z)
-        .multiplyScalar(1.09);
-      mesh.userData.cellId = p.baseCellId;
-      this.markers.add(mesh);
+      const color = isMine ? "#5cff9a" : (ownerColor.get(p.id) ?? "#fff");
+      const emissive = isMine ? "#2aff70" : p.alive ? 0x222222 : 0x550000;
+      const castle = this.makeCastle(color, emissive, isMine ? 0.85 : 0.35);
+      const outward = new THREE.Vector3(
+        cell.center.x,
+        cell.center.y,
+        cell.center.z,
+      ).normalize();
+      castle.position.copy(outward).multiplyScalar(1.1);
+      // Local +Y is "up" the tower; align to surface normal
+      castle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), outward);
+      castle.userData.cellId = p.baseCellId;
+      castle.traverse((obj) => {
+        obj.userData.cellId = p.baseCellId;
+      });
+      this.markers.add(castle);
 
       if (isMine) {
         const ring = new THREE.Mesh(
-          new THREE.TorusGeometry(0.14, 0.018, 8, 24),
+          new THREE.TorusGeometry(0.13, 0.012, 8, 24),
           new THREE.MeshStandardMaterial({
             color: 0x5cff9a,
             emissive: 0x5cff9a,
-            emissiveIntensity: 1,
+            emissiveIntensity: 0.7,
           }),
         );
-        ring.position.copy(mesh.position);
+        ring.position.copy(outward).multiplyScalar(1.085);
         ring.lookAt(0, 0, 0);
         ring.userData.cellId = p.baseCellId;
         this.markers.add(ring);
       }
     }
+  }
+
+  /** Low-poly castle: keep + corner towers + battlements */
+  private makeCastle(
+    color: string | number,
+    emissive: string | number,
+    emissiveIntensity: number,
+  ): THREE.Group {
+    const mat = new THREE.MeshStandardMaterial({
+      color,
+      emissive,
+      emissiveIntensity,
+      flatShading: true,
+      metalness: 0.15,
+      roughness: 0.7,
+    });
+    const roofMat = new THREE.MeshStandardMaterial({
+      color: 0x4a3030,
+      emissive: emissive,
+      emissiveIntensity: emissiveIntensity * 0.35,
+      flatShading: true,
+    });
+    const g = new THREE.Group();
+    const s = 0.045;
+
+    const keep = new THREE.Mesh(new THREE.BoxGeometry(s * 1.6, s * 1.8, s * 1.6), mat);
+    keep.position.y = s * 0.9;
+    g.add(keep);
+
+    const gate = new THREE.Mesh(new THREE.BoxGeometry(s * 0.45, s * 0.7, s * 0.25), mat);
+    gate.position.set(0, s * 0.35, s * 0.85);
+    g.add(gate);
+
+    const towerOffsets: [number, number][] = [
+      [-0.95, -0.95],
+      [0.95, -0.95],
+      [-0.95, 0.95],
+      [0.95, 0.95],
+    ];
+    for (const [tx, tz] of towerOffsets) {
+      const tower = new THREE.Mesh(
+        new THREE.CylinderGeometry(s * 0.35, s * 0.4, s * 2.2, 6),
+        mat,
+      );
+      tower.position.set(tx * s, s * 1.1, tz * s);
+      g.add(tower);
+      const roof = new THREE.Mesh(new THREE.ConeGeometry(s * 0.45, s * 0.7, 6), roofMat);
+      roof.position.set(tx * s, s * 2.4, tz * s);
+      g.add(roof);
+    }
+
+    // Battlements on keep
+    for (let i = -1; i <= 1; i++) {
+      for (let j = -1; j <= 1; j++) {
+        if (i === 0 && j === 0) continue;
+        if (Math.abs(i) + Math.abs(j) !== 2 && Math.abs(i) !== 1 && Math.abs(j) !== 1) {
+          /* keep corners + mid edges */
+        }
+        if (Math.abs(i) === 1 && Math.abs(j) === 1) continue; // corners owned by towers
+        const merlon = new THREE.Mesh(new THREE.BoxGeometry(s * 0.35, s * 0.35, s * 0.35), mat);
+        merlon.position.set(i * s * 0.7, s * 2.0, j * s * 0.7);
+        g.add(merlon);
+      }
+    }
+
+    return g;
   }
 
   /** Create/update bod meshes; positions lerped along path edges */

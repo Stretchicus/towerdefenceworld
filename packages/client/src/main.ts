@@ -66,7 +66,7 @@ interface MatchState {
   bodMoveEveryTicks?: number;
 }
 
-const CLIENT_BUILD = "v0.1.7";
+const CLIENT_BUILD = "v0.1.8";
 const TOWER_COST = { stone: 25, power: 10 };
 
 const app = document.getElementById("app")!;
