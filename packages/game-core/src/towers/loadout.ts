@@ -7,6 +7,10 @@ export type ValidationResult =
   | { ok: true }
   | { ok: false; errors: string[] };
 
+export type LoadoutValidationResult =
+  | { ok: true; towers: TowerDef[] }
+  | { ok: false; errors: string[] };
+
 function num(v: unknown, fallback = 0): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
@@ -144,7 +148,7 @@ export function validateTowerDef(
 export function validateLoadout(
   towers: TowerDef[],
   resourceCount: number,
-): ValidationResult {
+): LoadoutValidationResult {
   if (!Array.isArray(towers)) {
     return { ok: false, errors: ["loadout must be an array"] };
   }
@@ -153,13 +157,20 @@ export function validateLoadout(
   }
   const seen = new Set<string>();
   const errors: string[] = [];
+  const normalized: TowerDef[] = [];
   for (const t of towers) {
     if (seen.has(t.id)) errors.push(`duplicate tower id: ${t.id}`);
     seen.add(t.id);
     const r = validateTowerDef(t, resourceCount);
-    if (!r.ok) errors.push(...r.errors);
+    if (!r.ok) {
+      errors.push(...r.errors);
+    } else {
+      normalized.push(normalizeTowerForResources(t, resourceCount));
+    }
   }
-  return errors.length ? { ok: false, errors } : { ok: true };
+  return errors.length
+    ? { ok: false, errors }
+    : { ok: true, towers: normalized };
 }
 
 function baseTower(
@@ -223,9 +234,7 @@ export interface LoadoutFileV2 {
 export function parseLoadoutFile(
   raw: unknown,
   resourceCount: number,
-): ValidationResult & {
-  towers?: TowerDef[];
-} {
+): LoadoutValidationResult {
   if (!raw || typeof raw !== "object") {
     return { ok: false, errors: ["invalid JSON"] };
   }
@@ -239,12 +248,7 @@ export function parseLoadoutFile(
   if (!Array.isArray(obj.towers)) {
     return { ok: false, errors: ["towers array required"] };
   }
-  const towers = (obj.towers as TowerDef[]).map((t) =>
-    normalizeTowerForResources(t, resourceCount),
-  );
-  const v = validateLoadout(towers, resourceCount);
-  if (!v.ok) return v;
-  return { ok: true, towers };
+  return validateLoadout(obj.towers as TowerDef[], resourceCount);
 }
 
 export function loadoutFileFromTowers(towers: TowerDef[]): LoadoutFileV2 {

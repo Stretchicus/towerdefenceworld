@@ -325,6 +325,71 @@ describe("match combat", () => {
     assert.equal(rejected.ok, false);
   });
 
+  it("discount steps apply ceil(base * (1 - steps*0.05))", () => {
+    const def = {
+      id: "disc",
+      power: 8,
+      range: 2,
+      fireRate: 4,
+      buildDiscount: 2,
+      upgradeDiscount: 0,
+      aoeSize: 0,
+      aoeFade: 0,
+      jump: 0,
+      jumpLoss: 0,
+      slowPower: 0,
+      shotGivesPercent: 0,
+      shootCost: {},
+      buildCost: {},
+      upgradeCost: {},
+      upgradeStatIncrease: { power: 0.15, range: 0.1 },
+      upgradeLevelIncrease: 1.35,
+      friendlyFireDefault: false,
+    };
+    const costs = deriveTowerCosts(def, 3);
+    assert.deepEqual(costs.buildCost, { stone: 40, power: 47, water: 27 });
+    assert.deepEqual(costs.upgradeCost, { stone: 24, power: 28, water: 18 });
+  });
+
+  it("validateLoadout returns normalized authoritative towers", () => {
+    const raw = {
+      id: "t",
+      power: 5,
+      range: 2,
+      fireRate: 3,
+      buildDiscount: 2,
+      upgradeDiscount: 0,
+      aoeSize: 0,
+      aoeFade: 0,
+      jump: 0,
+      jumpLoss: 0,
+      slowPower: 0,
+      shotGivesPercent: 0,
+      shootCost: {},
+      buildCost: { stone: 999, power: 999, water: 999 },
+      upgradeCost: { stone: 999, power: 999, water: 999 },
+      upgradeStatIncrease: { power: 0.15, range: 0.1 },
+      upgradeLevelIncrease: 1.35,
+      friendlyFireDefault: false,
+    };
+    const v = validateLoadout([raw], 3);
+    assert.equal(v.ok, true);
+    if (!v.ok) return;
+    assert.deepEqual(v.towers[0]!.buildCost, {
+      stone: 40,
+      power: 36,
+      water: 23,
+    });
+
+    const v2 = validateLoadout([{ ...raw, fireRate: 10, buildDiscount: 5 }], 2);
+    assert.equal(v2.ok, true);
+    if (!v2.ok) return;
+    assert.equal(v2.towers[0]!.fireRate, 6);
+    assert.equal(v2.towers[0]!.buildDiscount, 0);
+    assert.equal(v2.towers[0]!.upgradeDiscount, 0);
+    assert.equal(v2.towers[0]!.buildCost.water, undefined);
+  });
+
   it("buildTower uses loadout typeId and cost", () => {
     const match = createMatch({
       id: "loadout-build",

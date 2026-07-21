@@ -164,7 +164,7 @@ function resolveSeatLoadout(
   if (seat.isAi) return defaultTowerLoadout(resourceCount);
   if (seat.loadout?.length) {
     const v = validateLoadout(seat.loadout, resourceCount);
-    if (v.ok) return seat.loadout.map((t) => structuredClone(t));
+    if (v.ok) return v.towers;
   }
   return defaultTowerLoadout(resourceCount);
 }

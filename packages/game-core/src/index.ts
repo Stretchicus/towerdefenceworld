@@ -83,4 +83,4 @@ export {
   parseLoadoutFile,
   loadoutFileFromTowers,
 } from "./towers/loadout.js";
-export type { ValidationResult, LoadoutFileV2 } from "./towers/loadout.js";
+export type { ValidationResult, LoadoutValidationResult, LoadoutFileV2 } from "./towers/loadout.js";
