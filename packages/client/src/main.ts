@@ -82,7 +82,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.16";
+const CLIENT_BUILD = "v0.1.17";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 
 const app = document.getElementById("app")!;
@@ -463,10 +463,25 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
   });
   hud.querySelectorAll("[data-build]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      if ((btn as HTMLButtonElement).disabled) return;
       const cellId = Number((btn as HTMLElement).dataset.build);
+      if (!Number.isFinite(cellId) || !lastMatch) return;
+      if (selectedBuildCell === cellId) {
+        // Second click: build (tower type picker comes later)
+        const selfNow = me();
+        const costs = matchCosts(lastMatch);
+        if (!selfNow || !canAffordCost(selfNow.bank, costs.towerBuild)) {
+          lastError = "Need more resources for a tower";
+          paint();
+          return;
+        }
+        lastError = "";
+        socket.send({ type: "buildTower", cellId });
+        return;
+      }
       selectedBuildCell = cellId;
-      socket.send({ type: "buildTower", cellId });
+      lastError = "";
+      planet.focusCell(cellId);
+      paint();
     });
   });
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
@@ -526,18 +541,26 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
 
   hud.querySelectorAll("[data-build]").forEach((btn) => {
     const el = btn as HTMLButtonElement;
-    el.disabled = !affordTower;
-    const cellId = el.dataset.build;
-    el.classList.toggle("selected", selectedBuildCell === Number(cellId));
-    const label = el.querySelector(".btn-label");
-    if (label) {
-      label.textContent = affordTower
-        ? `Pad #${cellId}`
-        : `Pad #${cellId} (need resources)`;
-    }
-    const chips = el.querySelector(".cost-row");
-    if (chips) chips.innerHTML = costChipsHtml(costs.towerBuild, affordTower);
+    const cellId = Number(el.dataset.build);
+    el.classList.toggle("selected", selectedBuildCell === cellId);
+    el.classList.toggle("cant-afford", !affordTower);
+    el.classList.toggle("ready-build", selectedBuildCell === cellId && affordTower);
   });
+  const padHint = document.getElementById("pad-hint");
+  if (padHint) {
+    if (selectedBuildCell === null) {
+      padHint.textContent =
+        "Tap a pad to spin the map to it · tap again to build";
+    } else if (!affordTower) {
+      padHint.textContent = `Pad #${selectedBuildCell} selected — need resources to build`;
+    } else {
+      padHint.textContent = `Pad #${selectedBuildCell} selected — tap again to build`;
+    }
+  }
+  const padCost = document.getElementById("pad-cost");
+  if (padCost) {
+    padCost.innerHTML = costChipsHtml(costs.towerBuild, affordTower);
+  }
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
     const el = btn as HTMLButtonElement;
     const structureId = el.dataset.upTower!;
@@ -597,6 +620,9 @@ function renderMatch(): void {
   const affordBase = self ? canAffordCost(self.bank, baseCost) : false;
 
   const pads = freeTowerPads(m);
+  if (selectedBuildCell !== null && !pads.includes(selectedBuildCell)) {
+    selectedBuildCell = null;
+  }
   const myTowers = m.towers.filter((t) => t.ownerId === playerId);
 
   const turnPlayer = m.players[m.currentSeat];
@@ -658,24 +684,27 @@ function renderMatch(): void {
     const buildList =
       m.phase === "combat"
         ? `<h2>BUILD TOWER</h2>
-      <p class="hint">Cyan rings = empty pads. One gun costs most of your start bank.</p>
-      <div class="build-list">
+      <p class="hint" id="pad-hint">${
+        selectedBuildCell === null
+          ? "Tap a pad to spin the map to it · tap again to build"
+          : affordTower
+            ? `Pad #${selectedBuildCell} selected — tap again to build`
+            : `Pad #${selectedBuildCell} selected — need resources to build`
+      }</p>
+      <div class="cost-row pad-cost" id="pad-cost">${costChipsHtml(costs.towerBuild, affordTower)}</div>
+      <div class="pad-rail" id="pad-rail">
         ${
           pads.length === 0
             ? `<p class="hint">No free pads left.</p>`
             : pads
-                .slice(0, 12)
                 .map(
                   (cellId) =>
-                    `<button class="build-btn ${selectedBuildCell === cellId ? "selected" : ""}" data-build="${cellId}" ${affordTower ? "" : "disabled"}>
-                      <span class="btn-label">${affordTower ? `Pad #${cellId}` : `Pad #${cellId} (need resources)`}</span>
-                      <span class="cost-row">${costChipsHtml(costs.towerBuild, affordTower)}</span>
+                    `<button type="button" class="pad-disc ${selectedBuildCell === cellId ? "selected" : ""} ${affordTower ? "" : "cant-afford"} ${selectedBuildCell === cellId && affordTower ? "ready-build" : ""}" data-build="${cellId}" title="Pad #${cellId}" aria-label="Pad ${cellId}">
+                      <span class="pad-disc-glow"></span>
+                      <span class="pad-disc-id">${cellId}</span>
                     </button>`,
                 )
-                .join("") +
-              (pads.length > 12
-                ? `<p class="hint">+${pads.length - 12} more on map</p>`
-                : "")
+                .join("")
         }
       </div>
       <h2>YOUR TOWERS (${myTowers.length})</h2>
@@ -829,13 +858,20 @@ planet.onCellClick = (cellId) => {
     if (placed?.tile.hasTowerPoint && !hasTower) {
       const self = me();
       const costs = matchCosts(lastMatch);
-      if (!self || !canAffordCost(self.bank, costs.towerBuild)) {
-        lastError = "Need more resources for a tower";
-        paint();
+      if (selectedBuildCell === cellId) {
+        if (!self || !canAffordCost(self.bank, costs.towerBuild)) {
+          lastError = "Need more resources for a tower";
+          paint();
+          return;
+        }
+        lastError = "";
+        socket.send({ type: "buildTower", cellId });
         return;
       }
       selectedBuildCell = cellId;
-      socket.send({ type: "buildTower", cellId });
+      lastError = "";
+      planet.focusCell(cellId);
+      paint();
       return;
     }
     if (

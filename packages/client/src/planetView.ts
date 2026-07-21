@@ -63,6 +63,8 @@ export class PlanetView {
   private hoverCellId: number | null = null;
   private markersKey = "";
   private routesKey = "";
+  private cellCenters = new Map<number, THREE.Vector3>();
+  private focusTarget: { theta: number; phi: number } | null = null;
   /** Gameplay sits on the hex surface — not the atmosphere shell */
   private static readonly SURFACE = 1.012;
   onCellClick: ((cellId: number) => void) | null = null;
@@ -99,6 +101,7 @@ export class PlanetView {
     el.addEventListener("pointerdown", (e) => {
       this.drag = true;
       this.moved = false;
+      this.focusTarget = null;
       this.prevX = e.clientX;
       this.prevY = e.clientY;
     });
@@ -240,6 +243,36 @@ export class PlanetView {
     this.camera.lookAt(0, 0, 0);
   }
 
+  /** Orbit the camera so `cellId` faces the viewer (smooth). */
+  focusCell(cellId: number): void {
+    const c = this.cellCenters.get(cellId);
+    if (!c) return;
+    const rotY = this.root.rotation.y;
+    const cos = Math.cos(rotY);
+    const sin = Math.sin(rotY);
+    const wx = c.x * cos + c.z * sin;
+    const wy = c.y;
+    const wz = -c.x * sin + c.z * cos;
+    const len = Math.hypot(wx, wy, wz) || 1;
+    const ny = wy / len;
+    const targetPhi = Math.min(
+      Math.PI - 0.1,
+      Math.max(0.1, Math.acos(Math.min(1, Math.max(-1, ny)))),
+    );
+    const targetTheta = Math.atan2(wx / len, wz / len);
+    this.focusTarget = { theta: targetTheta, phi: targetPhi };
+    this.velTheta = 0;
+    this.velPhi = 0;
+    this.spin = false;
+  }
+
+  private static shortestAngle(from: number, to: number): number {
+    let d = to - from;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    return d;
+  }
+
   private pick(e: MouseEvent): void {
     const id = this.rayCell(e);
     if (id === null) return;
@@ -263,6 +296,7 @@ export class PlanetView {
   setPlanet(data: PlanetViewData): void {
     this.clearGroup(this.root);
     this.cellMeshes.clear();
+    this.cellCenters.clear();
     this.interactionMode = data.interactionMode ?? "other";
 
     const placedMap = new Map(data.placed.map((p) => [p.cellId, p]));
@@ -344,6 +378,7 @@ export class PlanetView {
       mesh.userData.cellId = cell.id;
       this.root.add(mesh);
       this.cellMeshes.set(cell.id, mesh);
+      this.cellCenters.set(cell.id, center.clone());
 
       const edgePos: number[] = [];
       for (let i = 0; i < verts.length; i++) {
@@ -893,16 +928,34 @@ export class PlanetView {
     this.lastFrameMs = now;
 
     if (!this.drag) {
-      this.spherical.theta += this.velTheta * dt;
-      this.spherical.phi = Math.min(
-        Math.PI - 0.1,
-        Math.max(0.1, this.spherical.phi + this.velPhi * dt),
-      );
-      const damp = Math.exp(-4.2 * dt);
-      this.velTheta *= damp;
-      this.velPhi *= damp;
-      if (Math.abs(this.velTheta) + Math.abs(this.velPhi) > 0.0005) {
+      if (this.focusTarget) {
+        const k = 1 - Math.exp(-6 * dt);
+        const dTheta = PlanetView.shortestAngle(
+          this.spherical.theta,
+          this.focusTarget.theta,
+        );
+        const dPhi = this.focusTarget.phi - this.spherical.phi;
+        this.spherical.theta += dTheta * k;
+        this.spherical.phi += dPhi * k;
         this.updateCamera();
+        if (Math.abs(dTheta) + Math.abs(dPhi) < 0.01) {
+          this.spherical.theta = this.focusTarget.theta;
+          this.spherical.phi = this.focusTarget.phi;
+          this.focusTarget = null;
+          this.updateCamera();
+        }
+      } else {
+        this.spherical.theta += this.velTheta * dt;
+        this.spherical.phi = Math.min(
+          Math.PI - 0.1,
+          Math.max(0.1, this.spherical.phi + this.velPhi * dt),
+        );
+        const damp = Math.exp(-4.2 * dt);
+        this.velTheta *= damp;
+        this.velPhi *= damp;
+        if (Math.abs(this.velTheta) + Math.abs(this.velPhi) > 0.0005) {
+          this.updateCamera();
+        }
       }
     }
 
