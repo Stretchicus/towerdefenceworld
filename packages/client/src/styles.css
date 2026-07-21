@@ -34,7 +34,7 @@ body {
 
 #app {
   display: grid;
-  grid-template-rows: auto 1fr auto;
+  grid-template-rows: auto auto 1fr;
 }
 
 header.top {
@@ -47,6 +47,66 @@ header.top {
   background: var(--panel);
   backdrop-filter: blur(8px);
   z-index: 2;
+}
+
+.health-bar {
+  z-index: 2;
+  padding: 0.35rem 1rem 0.5rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  backdrop-filter: blur(8px);
+}
+
+.health-bar[hidden] {
+  display: none !important;
+}
+
+.health-bar-track {
+  display: flex;
+  width: 100%;
+  min-height: 2rem;
+  border-radius: 4px;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.health-seg {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.05rem;
+  min-width: 0;
+  padding: 0.15rem 0.35rem;
+  color: #061018;
+  font-weight: 700;
+  transition: flex 0.35s ease;
+  position: relative;
+}
+
+.health-seg.mine {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.55);
+}
+
+.health-seg.dead {
+  opacity: 0.35;
+  filter: grayscale(0.4);
+}
+
+.health-seg-label {
+  font-size: 0.68rem;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.health-seg-hp {
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.9;
 }
 
 .header-actions {

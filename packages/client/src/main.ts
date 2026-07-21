@@ -82,8 +82,9 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.17";
+const CLIENT_BUILD = "v0.1.18";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
+const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
@@ -94,6 +95,9 @@ app.innerHTML = `
       <button type="button" id="btn-leave" class="secondary leave-btn" hidden>Leave room</button>
     </div>
   </header>
+  <div class="health-bar" id="health-bar" hidden>
+    <div class="health-bar-track" id="health-bar-track"></div>
+  </div>
   <div id="viewport">
     <div class="hud" id="hud"></div>
   </div>
@@ -103,6 +107,10 @@ const viewport = document.getElementById("viewport")!;
 const hud = document.getElementById("hud")!;
 const statusEl = document.getElementById("status")!;
 const leaveBtn = document.getElementById("btn-leave") as HTMLButtonElement;
+const healthBar = document.getElementById("health-bar") as HTMLElement;
+const healthBarTrack = document.getElementById(
+  "health-bar-track",
+) as HTMLElement;
 
 const socket = new GameSocket();
 const planet = new PlanetView(viewport);
@@ -159,6 +167,32 @@ function resetToMenu(): void {
 }
 
 leaveBtn.addEventListener("click", () => leaveRoom());
+
+function updateHealthBar(m: MatchState | null): void {
+  if (!m || m.phase === "lobby") {
+    healthBar.hidden = true;
+    healthBarTrack.innerHTML = "";
+    return;
+  }
+  healthBar.hidden = false;
+  const total = m.players.reduce(
+    (sum, p) => sum + Math.max(0, p.baseHp),
+    0,
+  );
+  healthBarTrack.innerHTML = m.players
+    .map((p, i) => {
+      const hp = Math.max(0, p.baseHp);
+      const flex = total > 0 ? hp : 1;
+      const color = PLAYER_COLORS[i % PLAYER_COLORS.length]!;
+      const mine = p.id === playerId;
+      const dead = !p.alive || hp <= 0;
+      return `<div class="health-seg ${mine ? "mine" : ""} ${dead ? "dead" : ""}" style="flex:${flex} 1 0;background:${color}" title="${p.name}: ${hp.toFixed(0)} HP">
+        <span class="health-seg-label">${p.name}${mine ? " ←" : ""}</span>
+        <span class="health-seg-hp">${hp.toFixed(0)}</span>
+      </div>`;
+    })
+    .join("");
+}
 
 function freeTowerPads(m: MatchState): number[] {
   const occupied = new Set(m.towers.map((t) => t.cellId));
@@ -312,6 +346,7 @@ function rotatePlacement(dir: 1 | -1): void {
 
 function renderLobby(): void {
   planet.setSpin(true);
+  updateHealthBar(null);
   const s = lastLobby;
   updateLeaveBtn();
   hud.innerHTML = `
@@ -598,15 +633,7 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
     if (chips) chips.innerHTML = costChipsHtml(cost, afford);
   });
 
-  const seatList = document.getElementById("seat-list-live");
-  if (seatList) {
-    seatList.innerHTML = m.players
-      .map(
-        (p) =>
-          `<li style="${p.alive ? "" : "opacity:0.45"}">${p.name} · HP ${p.baseHp.toFixed(0)}${p.id === playerId ? " ←" : ""}</li>`,
-      )
-      .join("");
-  }
+  updateHealthBar(m);
 }
 
 function renderMatch(): void {
@@ -783,15 +810,6 @@ function renderMatch(): void {
       <div class="row">${bods || "—"}</div>
     </div>
     <div class="panel side-right">
-      <h2>PLAYERS</h2>
-      <ul class="seat-list" id="seat-list-live">
-        ${m.players
-          .map(
-            (p) =>
-              `<li style="${p.alive ? "" : "opacity:0.45"}">${p.name} · HP ${p.baseHp.toFixed(0)}${p.id === playerId ? " ←" : ""}</li>`,
-          )
-          .join("")}
-      </ul>
       ${buildList}
       <div class="row" style="margin-top:0.75rem">
         <button id="btn-upgrade-base" class="secondary" ${affordBase ? "" : "disabled"}>
@@ -810,6 +828,8 @@ function renderMatch(): void {
 
     bindMatchHudHandlers(self);
   }
+
+  updateHealthBar(m);
 
   const viewData: PlanetViewData = {
     cells: m.planet.cells,
