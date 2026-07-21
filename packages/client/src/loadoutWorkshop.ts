@@ -226,6 +226,13 @@ function costChips(cost: Record<string, number>): string {
     .join("");
 }
 
+function formatSliderDisplay(field: SliderField, n: number): string {
+  if (field.endsWith("Discount")) {
+    return `${n} → ${n * 5}% off`;
+  }
+  return String(n);
+}
+
 function syncSimpleSliderDom(
   root: HTMLElement,
   def: TowerDef,
@@ -238,7 +245,7 @@ function syncSimpleSliderDom(
     const val = root.querySelector(`[data-ws-val="${field}"]`);
     const n = getField(def, field);
     if (input) input.value = String(n);
-    if (val) val.textContent = `${n}${field.endsWith("Discount") ? "%" : ""}`;
+    if (val) val.textContent = formatSliderDisplay(field, n);
   }
   const costs = root.querySelector(".ws-costs");
   if (costs) {
@@ -278,8 +285,7 @@ export function workshopHtml(state: WorkshopState): string {
         .map((field) => {
           const config = SLIDER_CONFIG[field];
           const value = getField(t, field);
-          const suffix = field.endsWith("Discount") ? "%" : "";
-          return `<label>${config.label} <input type="range" min="${config.min}" max="${config.max}" data-ws-field="${field}" value="${value}" /><span data-ws-val="${field}">${value}${suffix}</span></label>`;
+          return `<label>${config.label} <input type="range" min="${config.min}" max="${config.max}" data-ws-field="${field}" value="${value}" /><span data-ws-val="${field}">${formatSliderDisplay(field, value)}</span></label>`;
         })
         .join("")
     : "";
