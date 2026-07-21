@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.23 — 2026-07-21
+
+### Changed
+
+- Workshop sliders auto-balance to 100 points by adjusting the highest other stat
+
 ## 0.1.22 — 2026-07-21
 
 ### Fixed

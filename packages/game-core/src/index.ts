@@ -71,6 +71,7 @@ export type {
 export {
   TOWER_POINT_POOL,
   scoreTowerPoints,
+  scoreTowerPointsRaw,
   validateTowerDef,
   validateLoadout,
   defaultTowerLoadout,

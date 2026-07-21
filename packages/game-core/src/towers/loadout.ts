@@ -15,16 +15,21 @@ function resourceTotal(cost: ResourceMap | undefined): number {
   return (cost.stone ?? 0) + (cost.power ?? 0);
 }
 
-/** Point spend for a tower (design formula v1). */
-export function scoreTowerPoints(def: TowerDef): number {
+/** Point spend for a tower (design formula v1), before rounding. */
+export function scoreTowerPointsRaw(def: TowerDef): number {
   const buildTotal = resourceTotal(def.buildCost);
   const upgradeTotal = resourceTotal(def.upgradeCost);
-  return Math.round(
+  return (
     def.power * 5 +
-      def.range * 15 +
-      Math.max(0, 150 - buildTotal) * 0.15 +
-      Math.max(0, 100 - upgradeTotal) * 0.1,
+    def.range * 15 +
+    Math.max(0, 150 - buildTotal) * 0.15 +
+    Math.max(0, 100 - upgradeTotal) * 0.1
   );
+}
+
+/** Point spend for a tower (design formula v1). */
+export function scoreTowerPoints(def: TowerDef): number {
+  return Math.round(scoreTowerPointsRaw(def));
 }
 
 export function validateTowerDef(def: TowerDef): ValidationResult {
