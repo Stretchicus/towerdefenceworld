@@ -100,7 +100,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.24";
+const CLIENT_BUILD = "v0.1.25";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -433,11 +433,14 @@ function renderLobby(): void {
 
   if (s) {
     const mySeat = s.seats.find((seat) => seat.id === playerId);
-    const key = `${s.room}:${playerId}:${(mySeat?.loadout ?? [])
+    const key = `${s.room}:${playerId}:${s.settings.resourceCount}:${(mySeat?.loadout ?? [])
       .map((t) => t.id)
       .join(",")}`;
     if (!workshop || workshopSyncKey !== key) {
-      workshop = createWorkshopState(mySeat?.loadout);
+      workshop = createWorkshopState(
+        mySeat?.loadout,
+        s.settings.resourceCount,
+      );
       workshopSyncKey = key;
     }
   } else {

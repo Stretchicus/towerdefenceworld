@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.25 — 2026-07-21
+
+### Changed
+
+- Workshop v2 gates stat and discount sliders by lobby resource count, derives live build/upgrade costs, and imports/exports v2 loadout files.
+
 ## 0.1.24 — 2026-07-21
 
 ### Fixed

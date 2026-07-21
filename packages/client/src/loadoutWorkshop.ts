@@ -3,6 +3,7 @@ import {
   blankTower,
   defaultTowerLoadout,
   loadoutFileFromTowers,
+  normalizeTowerForResources,
   parseLoadoutFile,
   scoreTowerPoints,
   scoreTowerPointsRaw,
@@ -15,136 +16,78 @@ export type WorkshopTab = "simple" | "advanced";
 export type SliderField =
   | "power"
   | "range"
-  | "buildStone"
-  | "buildPower"
-  | "upStone"
-  | "upPower";
+  | "fireRate"
+  | "buildDiscount"
+  | "upgradeDiscount";
 
 export interface WorkshopState {
   towers: TowerDef[];
+  resourceCount: number;
   selectedIndex: number;
   tab: WorkshopTab;
   jsonText: string;
   errors: string[];
 }
 
-const SLIDER_FIELDS: SliderField[] = [
-  "power",
-  "range",
-  "buildStone",
-  "buildPower",
-  "upStone",
-  "upPower",
+const BASE_SLIDER_FIELDS: SliderField[] = ["power", "range"];
+const THREE_RESOURCE_SLIDER_FIELDS: SliderField[] = [
+  "fireRate",
+  "buildDiscount",
+  "upgradeDiscount",
 ];
+const SLIDER_CONFIG: Record<
+  SliderField,
+  { label: string; min: number; max: number }
+> = {
+  power: { label: "Power", min: 1, max: 20 },
+  range: { label: "Range", min: 1, max: 6 },
+  fireRate: { label: "Fire rate", min: 1, max: 10 },
+  buildDiscount: { label: "Build discount", min: 0, max: 10 },
+  upgradeDiscount: { label: "Upgrade discount", min: 0, max: 8 },
+};
+
+function allowedSliderFields(resourceCount: number): SliderField[] {
+  return resourceCount >= 3
+    ? [...BASE_SLIDER_FIELDS, ...THREE_RESOURCE_SLIDER_FIELDS]
+    : BASE_SLIDER_FIELDS;
+}
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
 }
 
 function getField(def: TowerDef, field: SliderField): number {
-  switch (field) {
-    case "power":
-      return def.power;
-    case "range":
-      return def.range;
-    case "buildStone":
-      return def.buildCost.stone ?? 0;
-    case "buildPower":
-      return def.buildCost.power ?? 0;
-    case "upStone":
-      return def.upgradeCost.stone ?? 0;
-    case "upPower":
-      return def.upgradeCost.power ?? 0;
-  }
+  return def[field];
 }
 
 function setField(def: TowerDef, field: SliderField, value: number): void {
-  switch (field) {
-    case "power":
-      def.power = clamp(value, 1, 40);
-      break;
-    case "range":
-      def.range = clamp(value, 1, 6);
-      break;
-    case "buildStone":
-      def.buildCost = { ...def.buildCost, stone: clamp(value, 0, 200) };
-      break;
-    case "buildPower":
-      def.buildCost = { ...def.buildCost, power: clamp(value, 0, 200) };
-      break;
-    case "upStone":
-      def.upgradeCost = { ...def.upgradeCost, stone: clamp(value, 0, 200) };
-      break;
-    case "upPower":
-      def.upgradeCost = { ...def.upgradeCost, power: clamp(value, 0, 200) };
-      break;
-  }
+  const { min, max } = SLIDER_CONFIG[field];
+  def[field] = clamp(value, min, max);
 }
 
-/** Approximate point contribution used to pick which other slider to adjust. */
-function fieldContribution(def: TowerDef, field: SliderField): number {
-  const buildTotal = (def.buildCost.stone ?? 0) + (def.buildCost.power ?? 0);
-  const upTotal = (def.upgradeCost.stone ?? 0) + (def.upgradeCost.power ?? 0);
-  const buildCheap = Math.max(0, 150 - buildTotal) * 0.15;
-  const upCheap = Math.max(0, 100 - upTotal) * 0.1;
-  switch (field) {
-    case "power":
-      return def.power * 5;
-    case "range":
-      return def.range * 15;
-    case "buildStone": {
-      const s = def.buildCost.stone ?? 0;
-      const p = def.buildCost.power ?? 0;
-      const w = 201 - s;
-      return buildCheap * (w / (w + (201 - p)));
-    }
-    case "buildPower": {
-      const s = def.buildCost.stone ?? 0;
-      const p = def.buildCost.power ?? 0;
-      const w = 201 - p;
-      return buildCheap * (w / (w + (201 - s)));
-    }
-    case "upStone": {
-      const s = def.upgradeCost.stone ?? 0;
-      const p = def.upgradeCost.power ?? 0;
-      const w = 201 - s;
-      return upCheap * (w / (w + (201 - p)));
-    }
-    case "upPower": {
-      const s = def.upgradeCost.stone ?? 0;
-      const p = def.upgradeCost.power ?? 0;
-      const w = 201 - p;
-      return upCheap * (w / (w + (201 - s)));
-    }
-  }
+function fieldContribution(
+  def: TowerDef,
+  field: SliderField,
+  resourceCount: number,
+): number {
+  const original = getField(def, field);
+  setField(def, field, 0);
+  const base = scoreTowerPointsRaw(def, resourceCount);
+  setField(def, field, original);
+  return scoreTowerPointsRaw(def, resourceCount) - base;
 }
 
 function nudgeReducePoints(def: TowerDef, field: SliderField): boolean {
   const v = getField(def, field);
-  if (field === "power" || field === "range") {
-    if (v <= 1) return false;
-    setField(def, field, v - 1);
-    return true;
-  }
-  if (v >= 200) return false;
-  setField(def, field, v + 1);
+  if (v <= SLIDER_CONFIG[field].min) return false;
+  setField(def, field, v - 1);
   return true;
 }
 
 function nudgeIncreasePoints(def: TowerDef, field: SliderField): boolean {
   const v = getField(def, field);
-  if (field === "power") {
-    if (v >= 40) return false;
-    setField(def, field, v + 1);
-    return true;
-  }
-  if (field === "range") {
-    if (v >= 6) return false;
-    setField(def, field, v + 1);
-    return true;
-  }
-  if (v <= 0) return false;
-  setField(def, field, v - 1);
+  if (v >= SLIDER_CONFIG[field].max) return false;
+  setField(def, field, v + 1);
   return true;
 }
 
@@ -154,15 +97,9 @@ function undoNudge(
   direction: "reduce" | "increase",
 ): void {
   if (direction === "reduce") {
-    if (field === "power" || field === "range") {
-      setField(def, field, getField(def, field) + 1);
-    } else {
-      setField(def, field, getField(def, field) - 1);
-    }
-  } else if (field === "power" || field === "range") {
-    setField(def, field, getField(def, field) - 1);
-  } else {
     setField(def, field, getField(def, field) + 1);
+  } else {
+    setField(def, field, getField(def, field) - 1);
   }
 }
 
@@ -175,21 +112,26 @@ function undoNudge(
 export function rebalanceTowerToPool(
   def: TowerDef,
   lockedField: SliderField,
+  resourceCount: number,
 ): void {
   for (let i = 0; i < 2000; i++) {
-    const spent = scoreTowerPoints(def);
+    const spent = scoreTowerPoints(def, resourceCount);
     if (spent === TOWER_POINT_POOL) return;
 
-    const others = SLIDER_FIELDS.filter((f) => f !== lockedField).sort(
-      (a, b) => fieldContribution(def, b) - fieldContribution(def, a),
+    const others = allowedSliderFields(resourceCount)
+      .filter((f) => f !== lockedField)
+      .sort(
+        (a, b) =>
+          fieldContribution(def, b, resourceCount) -
+          fieldContribution(def, a, resourceCount),
     );
 
     let moved = false;
     if (spent > TOWER_POINT_POOL) {
       for (const field of others) {
-        const beforeRaw = scoreTowerPointsRaw(def);
+        const beforeRaw = scoreTowerPointsRaw(def, resourceCount);
         if (!nudgeReducePoints(def, field)) continue;
-        const afterRaw = scoreTowerPointsRaw(def);
+        const afterRaw = scoreTowerPointsRaw(def, resourceCount);
         if (afterRaw >= beforeRaw - 1e-9) {
           undoNudge(def, field, "reduce");
           continue;
@@ -199,11 +141,11 @@ export function rebalanceTowerToPool(
       }
     } else {
       for (const field of others) {
-        const before = scoreTowerPoints(def);
-        const beforeRaw = scoreTowerPointsRaw(def);
+        const before = scoreTowerPoints(def, resourceCount);
+        const beforeRaw = scoreTowerPointsRaw(def, resourceCount);
         if (!nudgeIncreasePoints(def, field)) continue;
-        const after = scoreTowerPoints(def);
-        const afterRaw = scoreTowerPointsRaw(def);
+        const after = scoreTowerPoints(def, resourceCount);
+        const afterRaw = scoreTowerPointsRaw(def, resourceCount);
         if (afterRaw <= beforeRaw + 1e-9) {
           undoNudge(def, field, "increase");
           continue;
@@ -224,13 +166,19 @@ export function rebalanceTowerToPool(
   }
 }
 
-export function createWorkshopState(towers?: TowerDef[]): WorkshopState {
+export function createWorkshopState(
+  towers: TowerDef[] | undefined,
+  resourceCount: number,
+): WorkshopState {
   const list =
     towers && towers.length > 0
-      ? structuredClone(towers)
-      : defaultTowerLoadout();
+      ? towers.map((tower) =>
+          normalizeTowerForResources(tower, resourceCount),
+        )
+      : defaultTowerLoadout(resourceCount);
   return {
     towers: list,
+    resourceCount,
     selectedIndex: 0,
     tab: "simple",
     jsonText: JSON.stringify(loadoutFileFromTowers(list), null, 2),
@@ -247,7 +195,7 @@ export function syncWorkshopJson(state: WorkshopState): void {
 }
 
 export function workshopValidation(state: WorkshopState): string[] {
-  const v = validateLoadout(state.towers);
+  const v = validateLoadout(state.towers, state.resourceCount);
   return v.ok ? [] : v.errors;
 }
 
@@ -255,12 +203,12 @@ export function isWorkshopValid(state: WorkshopState): boolean {
   return workshopValidation(state).length === 0;
 }
 
-export function pointsMeter(def: TowerDef): {
+export function pointsMeter(def: TowerDef, resourceCount: number): {
   spent: number;
   pool: number;
   over: boolean;
 } {
-  const spent = scoreTowerPoints(def);
+  const spent = scoreTowerPoints(def, resourceCount);
   return { spent, pool: TOWER_POINT_POOL, over: spent > TOWER_POINT_POOL };
 }
 
@@ -272,17 +220,31 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
-function syncSimpleSliderDom(root: HTMLElement, def: TowerDef): void {
-  for (const field of SLIDER_FIELDS) {
+function costChips(cost: Record<string, number>): string {
+  return Object.entries(cost)
+    .map(([resource, amount]) => `<span class="chip">${resource} ${amount}</span>`)
+    .join("");
+}
+
+function syncSimpleSliderDom(
+  root: HTMLElement,
+  def: TowerDef,
+  resourceCount: number,
+): void {
+  for (const field of allowedSliderFields(resourceCount)) {
     const input = root.querySelector(
       `[data-ws-field="${field}"]`,
     ) as HTMLInputElement | null;
     const val = root.querySelector(`[data-ws-val="${field}"]`);
     const n = getField(def, field);
     if (input) input.value = String(n);
-    if (val) val.textContent = String(n);
+    if (val) val.textContent = `${n}${field.endsWith("Discount") ? "%" : ""}`;
   }
-  const meter = pointsMeter(def);
+  const costs = root.querySelector(".ws-costs");
+  if (costs) {
+    costs.innerHTML = `<span>Build ${costChips(def.buildCost)}</span><span>Upgrade ${costChips(def.upgradeCost)}</span>`;
+  }
+  const meter = pointsMeter(def, resourceCount);
   const fill = root.querySelector(".ws-meter-fill") as HTMLElement | null;
   const box = root.querySelector(".ws-meter");
   const label = root.querySelector(".ws-meter span");
@@ -302,24 +264,31 @@ export function workshopHtml(state: WorkshopState): string {
   );
   state.selectedIndex = idx;
   const t = state.towers[idx];
-  const meter = t ? pointsMeter(t) : null;
+  const meter = t ? pointsMeter(t, state.resourceCount) : null;
 
   const towerTabs = state.towers
     .map((tw, i) => {
-      const m = pointsMeter(tw);
+      const m = pointsMeter(tw, state.resourceCount);
       return `<button type="button" class="ws-tower-tab ${i === idx ? "on" : ""} ${m.over ? "over" : ""}" data-ws-select="${i}">${escapeHtml(tw.id)} <span class="ws-pts">${m.spent}/${m.pool}</span></button>`;
     })
     .join("");
 
+  const simpleSliders = t
+    ? allowedSliderFields(state.resourceCount)
+        .map((field) => {
+          const config = SLIDER_CONFIG[field];
+          const value = getField(t, field);
+          const suffix = field.endsWith("Discount") ? "%" : "";
+          return `<label>${config.label} <input type="range" min="${config.min}" max="${config.max}" data-ws-field="${field}" value="${value}" /><span data-ws-val="${field}">${value}${suffix}</span></label>`;
+        })
+        .join("")
+    : "";
   const simple = t
     ? `<div class="ws-simple">
         <label>Id <input data-ws-field="id" value="${escapeHtml(t.id)}" /></label>
-        <label>Power <input type="range" min="1" max="40" data-ws-field="power" value="${t.power}" /><span data-ws-val="power">${t.power}</span></label>
-        <label>Range <input type="range" min="1" max="6" data-ws-field="range" value="${t.range}" /><span data-ws-val="range">${t.range}</span></label>
-        <label>Build stone <input type="range" min="0" max="200" data-ws-field="buildStone" value="${t.buildCost.stone ?? 0}" /><span data-ws-val="buildStone">${t.buildCost.stone ?? 0}</span></label>
-        <label>Build power <input type="range" min="0" max="200" data-ws-field="buildPower" value="${t.buildCost.power ?? 0}" /><span data-ws-val="buildPower">${t.buildCost.power ?? 0}</span></label>
-        <label>Upgrade stone <input type="range" min="0" max="200" data-ws-field="upStone" value="${t.upgradeCost.stone ?? 0}" /><span data-ws-val="upStone">${t.upgradeCost.stone ?? 0}</span></label>
-        <label>Upgrade power <input type="range" min="0" max="200" data-ws-field="upPower" value="${t.upgradeCost.power ?? 0}" /><span data-ws-val="upPower">${t.upgradeCost.power ?? 0}</span></label>
+        ${simpleSliders}
+        <p class="hint">Taxed resources: power → power · range → stone${state.resourceCount >= 3 ? " · fire rate → water" : ""}</p>
+        <div class="ws-costs"><span>Build ${costChips(t.buildCost)}</span><span>Upgrade ${costChips(t.upgradeCost)}</span></div>
         <div class="ws-meter ${meter?.over ? "over" : ""}">
           <div class="ws-meter-fill" style="width:${Math.min(100, ((meter?.spent ?? 0) / TOWER_POINT_POOL) * 100)}%"></div>
           <span>${meter?.spent ?? 0} / ${TOWER_POINT_POOL} points</span>
@@ -336,7 +305,7 @@ export function workshopHtml(state: WorkshopState): string {
 
   return `<div class="workshop" id="tower-workshop">
     <h2>TOWER WORKSHOP</h2>
-    <p class="hint">100 points per tower · download / upload · Ready blocked if invalid</p>
+    <p class="hint">${state.resourceCount} resources · 100 points per tower · derived costs · Ready blocked if invalid</p>
     <div class="ws-tower-tabs">${towerTabs || `<span class="hint">Empty</span>`}</div>
     <div class="row ws-actions">
       <button type="button" class="secondary" data-ws-add>Add</button>
@@ -369,7 +338,13 @@ export function bindWorkshop(
     const n = Number(raw);
     if (!Number.isFinite(n)) return;
     setField(t, field, n);
-    rebalanceTowerToPool(t, field);
+    const normalized = normalizeTowerForResources(t, state.resourceCount);
+    state.towers[state.selectedIndex] = normalized;
+    rebalanceTowerToPool(normalized, field, state.resourceCount);
+    state.towers[state.selectedIndex] = normalizeTowerForResources(
+      normalized,
+      state.resourceCount,
+    );
     syncWorkshopJson(state);
   };
 
@@ -407,11 +382,11 @@ export function bindWorkshop(
   const refreshAfterSlider = () => {
     const t = state.towers[state.selectedIndex];
     if (!t) return;
-    syncSimpleSliderDom(root, t);
+    syncSimpleSliderDom(root, t, state.resourceCount);
     const tab = root.querySelector(
       `[data-ws-select="${state.selectedIndex}"] .ws-pts`,
     );
-    const meter = pointsMeter(t);
+    const meter = pointsMeter(t, state.resourceCount);
     if (tab) tab.textContent = `${meter.spent}/${meter.pool}`;
     softValidate();
   };
@@ -431,7 +406,7 @@ export function bindWorkshop(
   });
   root.querySelector("[data-ws-add]")?.addEventListener("click", () => {
     const id = `tower-${state.towers.length + 1}`;
-    state.towers.push(blankTower(id));
+    state.towers.push(blankTower(id, state.resourceCount));
     state.selectedIndex = state.towers.length - 1;
     syncWorkshopJson(state);
     onChange("hard");
@@ -444,7 +419,7 @@ export function bindWorkshop(
     onChange("hard");
   });
   root.querySelector("[data-ws-defaults]")?.addEventListener("click", () => {
-    state.towers = defaultTowerLoadout();
+    state.towers = defaultTowerLoadout(state.resourceCount);
     state.selectedIndex = 0;
     syncWorkshopJson(state);
     onChange("hard");
@@ -456,7 +431,7 @@ export function bindWorkshop(
     );
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "tdw-loadout-v1.json";
+    a.download = "tdw-loadout-v2.json";
     a.click();
     URL.revokeObjectURL(a.href);
   });
@@ -465,7 +440,7 @@ export function bindWorkshop(
     if (!file) return;
     void file.text().then((text) => {
       try {
-        const parsed = parseLoadoutFile(JSON.parse(text));
+        const parsed = parseLoadoutFile(JSON.parse(text), state.resourceCount);
         if (!parsed.ok || !parsed.towers) {
           state.errors = parsed.ok ? ["import failed"] : parsed.errors;
           onChange("hard");
@@ -515,7 +490,10 @@ export function bindWorkshop(
   });
   root.querySelector("[data-ws-validate-json]")?.addEventListener("click", () => {
     try {
-      const parsed = parseLoadoutFile(JSON.parse(state.jsonText));
+      const parsed = parseLoadoutFile(
+        JSON.parse(state.jsonText),
+        state.resourceCount,
+      );
       state.errors = parsed.ok ? [] : parsed.errors;
     } catch {
       state.errors = ["invalid JSON"];
@@ -524,7 +502,10 @@ export function bindWorkshop(
   });
   root.querySelector("[data-ws-apply-json]")?.addEventListener("click", () => {
     try {
-      const parsed = parseLoadoutFile(JSON.parse(state.jsonText));
+      const parsed = parseLoadoutFile(
+        JSON.parse(state.jsonText),
+        state.resourceCount,
+      );
       if (!parsed.ok || !parsed.towers) {
         state.errors = parsed.ok ? ["apply failed"] : parsed.errors;
         onChange("hard");

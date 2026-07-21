@@ -594,6 +594,19 @@ button.secondary {
   font-size: 0.8rem;
 }
 
+.ws-costs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  font-size: 0.78rem;
+}
+
+.ws-costs > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
 .ws-meter {
   position: relative;
   height: 1.4rem;
