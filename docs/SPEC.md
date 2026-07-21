@@ -97,9 +97,11 @@ Server → client: `room`, `state`, `error`, `ended`
 
 ## 9. Future improvements
 
-- Activate AoE/jump/slow/shot-refund  
-- Richer AI; replays; accounts  
-- Delta compression; spectator mode  
+- Activate AoE/jump/slow/shot-refund
+- **Tower ↔ bod rock-paper-scissors matchups** (affinities: some guns strong/weak vs specific bod types)
+- Richer AI; replays; accounts
+- Delta compression; spectator mode
+- Per-player tower loadouts + lobby workshop (see `docs/superpowers/specs/2026-07-21-tower-loadouts-workshop-design.md`) 
 
 ## 10. Deployment
 
