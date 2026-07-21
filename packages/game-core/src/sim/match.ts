@@ -37,7 +37,9 @@ import type {
   UpgradeTarget,
 } from "../types.js";
 import {
+  BASELINE_FIRE_RATE,
   defaultTowerLoadout,
+  towerCooldownTicks,
   validateLoadout,
 } from "../towers/loadout.js";
 
@@ -797,7 +799,9 @@ export function tickMatch(state: MatchState): void {
     const st = bodStats(state, bodOwner, best.typeId);
     const dmg = power * (1 - st.resistance);
     best.hp -= dmg;
-    tower.cooldown = 5;
+    const def = resolveTowerDef(state, tower);
+    const rate = def?.fireRate ?? BASELINE_FIRE_RATE;
+    tower.cooldown = towerCooldownTicks(rate);
     if (best.hp <= 0) {
       killBod(state, best, tower.ownerId);
     }

@@ -182,6 +182,74 @@ describe("match combat", () => {
     assert.ok(snap.planet.cells.length > 0);
   });
 
+  it("tower cooldown uses fireRate", () => {
+    const fastTower = {
+      id: "fast",
+      power: 1,
+      range: 1,
+      fireRate: 10,
+      buildDiscount: 0,
+      upgradeDiscount: 0,
+      aoeSize: 0,
+      aoeFade: 0,
+      jump: 0,
+      jumpLoss: 0,
+      slowPower: 0,
+      shotGivesPercent: 0,
+      shootCost: {},
+      buildCost: { stone: 1 },
+      upgradeCost: { stone: 1 },
+      upgradeStatIncrease: { power: 0.15, range: 0.1 },
+      upgradeLevelIncrease: 1.35,
+      friendlyFireDefault: false,
+    };
+    const match = createMatch({
+      id: "firerate",
+      seed: 1,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 3,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false, loadout: [fastTower] },
+        { id: "p2", name: "B", isAi: false },
+      ],
+    });
+    for (const p of match.players) {
+      p.bodEnabled = { grunt: false, bruiser: false };
+    }
+    const arena = match.planet.baseCellIds[0]!;
+    match.bods.push({
+      id: "bod-x",
+      ownerId: "p2",
+      typeId: "grunt",
+      hp: 100,
+      maxHp: 100,
+      cellId: arena,
+      path: [arena, match.planet.baseCellIds[1]!],
+      pathIndex: 0,
+      moveCooldown: 0,
+      held: {},
+      targetPlayerId: "p1",
+      buildRemaining: 0,
+    });
+    match.towers.push({
+      id: "tw-x",
+      cellId: arena,
+      ownerId: "p1",
+      typeId: "fast",
+      level: 0,
+      friendlyFire: false,
+      cooldown: 0,
+    });
+    tickMatch(match);
+    assert.equal(match.towers[0]!.cooldown, 1);
+  });
+
   it("death loot credits killer bank", () => {
     const match = createMatch({
       id: "loot",
