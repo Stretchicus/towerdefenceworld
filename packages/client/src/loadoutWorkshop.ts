@@ -404,7 +404,7 @@ export function bindWorkshop(
     }
   };
 
-  const refreshAfterSlider = (locked: SliderField) => {
+  const refreshAfterSlider = () => {
     const t = state.towers[state.selectedIndex];
     if (!t) return;
     syncSimpleSliderDom(root, t);
@@ -488,11 +488,11 @@ export function bindWorkshop(
       const sliderField = field as SliderField;
       input.addEventListener("input", () => {
         applySlider(sliderField, input.value);
-        refreshAfterSlider(sliderField);
+        refreshAfterSlider();
       });
       input.addEventListener("change", () => {
         applySlider(sliderField, input.value);
-        refreshAfterSlider(sliderField);
+        refreshAfterSlider();
         onChange();
       });
     } else {
