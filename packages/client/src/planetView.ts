@@ -41,6 +41,8 @@ export class PlanetView {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly renderer: THREE.WebGLRenderer;
+  /** Free-spinning globe — tiles, roads, markers, bods all live here */
+  private readonly pivot = new THREE.Group();
   private root = new THREE.Group();
   private cellMeshes = new Map<number, THREE.Mesh>();
   private markers = new THREE.Group();
@@ -54,9 +56,9 @@ export class PlanetView {
   private moved = false;
   private prevX = 0;
   private prevY = 0;
-  private velTheta = 0;
-  private velPhi = 0;
-  private spherical = { theta: 0.4, phi: 0.9, radius: 4.2 };
+  private cameraRadius = 4.2;
+  private spinVel = new THREE.Vector3();
+  private focusQuat: THREE.Quaternion | null = null;
   private selectedCell: number | null = null;
   private spin = true;
   private interactionMode: "placement" | "combat" | "other" = "other";
@@ -64,9 +66,11 @@ export class PlanetView {
   private markersKey = "";
   private routesKey = "";
   private cellCenters = new Map<number, THREE.Vector3>();
-  private focusTarget: { theta: number; phi: number } | null = null;
   /** Gameplay sits on the hex surface — not the atmosphere shell */
   private static readonly SURFACE = 1.012;
+  private static readonly _q = new THREE.Quaternion();
+  private static readonly _axis = new THREE.Vector3();
+  private static readonly _v = new THREE.Vector3();
   onCellClick: ((cellId: number) => void) | null = null;
   onTileRotate: ((dir: 1 | -1) => void) | null = null;
   onHoverCell: ((cellId: number | null) => void) | null = null;
@@ -91,17 +95,19 @@ export class PlanetView {
     rim.position.set(-2, -1, -3);
     this.scene.add(rim);
 
-    this.scene.add(this.root);
-    this.scene.add(this.pathGroup);
-    this.scene.add(this.markers);
-    this.scene.add(this.bodGroup);
+    this.pivot.add(this.root);
+    this.pivot.add(this.pathGroup);
+    this.pivot.add(this.markers);
+    this.pivot.add(this.bodGroup);
+    this.scene.add(this.pivot);
     this.updateCamera();
 
     const el = this.renderer.domElement;
     el.addEventListener("pointerdown", (e) => {
       this.drag = true;
       this.moved = false;
-      this.focusTarget = null;
+      this.focusQuat = null;
+      this.spinVel.set(0, 0, 0);
       this.prevX = e.clientX;
       this.prevY = e.clientY;
     });
@@ -118,16 +124,7 @@ export class PlanetView {
       if (Math.abs(dx) + Math.abs(dy) > 4) this.moved = true;
       this.prevX = e.clientX;
       this.prevY = e.clientY;
-      const sens = 0.005;
-      // Grab metaphor: finger drag moves the surface with you (invert Y)
-      this.velTheta = -dx * sens * 60;
-      this.velPhi = -dy * sens * 60;
-      this.spherical.theta -= dx * sens;
-      this.spherical.phi = Math.min(
-        Math.PI - 0.1,
-        Math.max(0.1, this.spherical.phi - dy * sens),
-      );
-      this.updateCamera();
+      this.applyTrackballDrag(dx, dy);
     });
     el.addEventListener("wheel", (e) => {
       e.preventDefault();
@@ -135,9 +132,9 @@ export class PlanetView {
         this.onTileRotate(e.deltaY > 0 ? 1 : -1);
         return;
       }
-      this.spherical.radius = Math.min(
+      this.cameraRadius = Math.min(
         8,
-        Math.max(2.4, this.spherical.radius + e.deltaY * 0.002),
+        Math.max(2.4, this.cameraRadius + e.deltaY * 0.002),
       );
       this.updateCamera();
     });
@@ -170,9 +167,9 @@ export class PlanetView {
         const angle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
         if (pinchStartDist > 0) {
           const scale = pinchStartDist / dist;
-          this.spherical.radius = Math.min(
+          this.cameraRadius = Math.min(
             8,
-            Math.max(2.4, this.spherical.radius * scale),
+            Math.max(2.4, this.cameraRadius * scale),
           );
           pinchStartDist = dist;
           this.updateCamera();
@@ -208,6 +205,22 @@ export class PlanetView {
     this.spin = on;
   }
 
+  /** Rotate the globe so drag follows the finger (trackball / free spin). */
+  private applyTrackballDrag(dx: number, dy: number): void {
+    const sens = 0.005;
+    // Camera-fixed view: right = +X, up = +Y. Grab: surface moves with finger.
+    const qx = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(1, 0, 0),
+      dy * sens,
+    );
+    const qy = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 1, 0),
+      dx * sens,
+    );
+    this.pivot.quaternion.premultiply(qy).premultiply(qx);
+    this.spinVel.set(dy * sens * 55, dx * sens * 55, 0);
+  }
+
   private updateHover(e: PointerEvent | MouseEvent): void {
     const id = this.rayCell(e);
     if (id !== this.hoverCellId) {
@@ -234,43 +247,22 @@ export class PlanetView {
   }
 
   private updateCamera(): void {
-    const { theta, phi, radius } = this.spherical;
-    this.camera.position.set(
-      radius * Math.sin(phi) * Math.sin(theta),
-      radius * Math.cos(phi),
-      radius * Math.sin(phi) * Math.cos(theta),
-    );
+    this.camera.position.set(0, 0, this.cameraRadius);
     this.camera.lookAt(0, 0, 0);
+    this.camera.up.set(0, 1, 0);
   }
 
-  /** Orbit the camera so `cellId` faces the viewer (smooth). */
+  /** Spin the globe so `cellId` faces the camera (smooth). */
   focusCell(cellId: number): void {
     const c = this.cellCenters.get(cellId);
     if (!c) return;
-    const rotY = this.root.rotation.y;
-    const cos = Math.cos(rotY);
-    const sin = Math.sin(rotY);
-    const wx = c.x * cos + c.z * sin;
-    const wy = c.y;
-    const wz = -c.x * sin + c.z * cos;
-    const len = Math.hypot(wx, wy, wz) || 1;
-    const ny = wy / len;
-    const targetPhi = Math.min(
-      Math.PI - 0.1,
-      Math.max(0.1, Math.acos(Math.min(1, Math.max(-1, ny)))),
-    );
-    const targetTheta = Math.atan2(wx / len, wz / len);
-    this.focusTarget = { theta: targetTheta, phi: targetPhi };
-    this.velTheta = 0;
-    this.velPhi = 0;
+    const local = PlanetView._v.copy(c).normalize();
+    const world = local.clone().applyQuaternion(this.pivot.quaternion);
+    const towardCam = new THREE.Vector3(0, 0, 1);
+    const align = new THREE.Quaternion().setFromUnitVectors(world, towardCam);
+    this.focusQuat = align.multiply(this.pivot.quaternion);
+    this.spinVel.set(0, 0, 0);
     this.spin = false;
-  }
-
-  private static shortestAngle(from: number, to: number): number {
-    let d = to - from;
-    while (d > Math.PI) d -= Math.PI * 2;
-    while (d < -Math.PI) d += Math.PI * 2;
-    return d;
   }
 
   private pick(e: MouseEvent): void {
@@ -928,34 +920,32 @@ export class PlanetView {
     this.lastFrameMs = now;
 
     if (!this.drag) {
-      if (this.focusTarget) {
+      if (this.focusQuat) {
         const k = 1 - Math.exp(-6 * dt);
-        const dTheta = PlanetView.shortestAngle(
-          this.spherical.theta,
-          this.focusTarget.theta,
-        );
-        const dPhi = this.focusTarget.phi - this.spherical.phi;
-        this.spherical.theta += dTheta * k;
-        this.spherical.phi += dPhi * k;
-        this.updateCamera();
-        if (Math.abs(dTheta) + Math.abs(dPhi) < 0.01) {
-          this.spherical.theta = this.focusTarget.theta;
-          this.spherical.phi = this.focusTarget.phi;
-          this.focusTarget = null;
-          this.updateCamera();
+        this.pivot.quaternion.slerp(this.focusQuat, k);
+        if (this.pivot.quaternion.angleTo(this.focusQuat) < 0.01) {
+          this.pivot.quaternion.copy(this.focusQuat);
+          this.focusQuat = null;
         }
-      } else {
-        this.spherical.theta += this.velTheta * dt;
-        this.spherical.phi = Math.min(
-          Math.PI - 0.1,
-          Math.max(0.1, this.spherical.phi + this.velPhi * dt),
-        );
-        const damp = Math.exp(-4.2 * dt);
-        this.velTheta *= damp;
-        this.velPhi *= damp;
-        if (Math.abs(this.velTheta) + Math.abs(this.velPhi) > 0.0005) {
-          this.updateCamera();
+      } else if (this.spinVel.lengthSq() > 1e-6) {
+        if (Math.abs(this.spinVel.x) > 1e-5) {
+          PlanetView._q.setFromAxisAngle(
+            PlanetView._axis.set(1, 0, 0),
+            this.spinVel.x * dt,
+          );
+          this.pivot.quaternion.premultiply(PlanetView._q);
         }
+        if (Math.abs(this.spinVel.y) > 1e-5) {
+          PlanetView._q.setFromAxisAngle(
+            PlanetView._axis.set(0, 1, 0),
+            this.spinVel.y * dt,
+          );
+          this.pivot.quaternion.premultiply(PlanetView._q);
+        }
+        this.spinVel.multiplyScalar(Math.exp(-3.2 * dt));
+      } else if (this.spin) {
+        PlanetView._q.setFromAxisAngle(PlanetView._axis.set(0, 1, 0), 0.0005);
+        this.pivot.quaternion.premultiply(PlanetView._q);
       }
     }
 
@@ -989,12 +979,6 @@ export class PlanetView {
       }
     }
 
-    if (this.spin && !this.drag && Math.abs(this.velTheta) < 0.05) {
-      this.root.rotation.y += 0.0005;
-    }
-    this.pathGroup.rotation.y = this.root.rotation.y;
-    this.markers.rotation.y = this.root.rotation.y;
-    this.bodGroup.rotation.y = this.root.rotation.y;
     this.renderer.render(this.scene, this.camera);
   }
 }
