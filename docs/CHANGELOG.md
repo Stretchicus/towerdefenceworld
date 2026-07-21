@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.22 — 2026-07-21
+
+### Fixed
+
+- Lobby tower workshop scrolls when taller than the viewport
+
 ## 0.1.21 — 2026-07-21
 
 ### Added

@@ -409,8 +409,12 @@ header.top .meta {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: min(420px, 92vw);
+  width: min(440px, 92vw);
   max-width: none;
+  max-height: calc(100% - 1.5rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
 
 .row {
