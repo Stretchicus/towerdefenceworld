@@ -2,17 +2,41 @@
 
 ## Architecture
 
-- **Node** (`@tdw/server`) listens on `127.0.0.1:3101` — HTTP health + WebSocket `/ws`
-- **Vite build** of `@tdw/client` is static files (e.g. `/var/www/tdw/`)
-- **Apache** serves static files and reverse-proxies `/ws` to Node
+- **Node** (`@tdw/server`) on `127.0.0.1:3101` — health + WebSocket `/ws`
+- **Static client** = contents of `packages/client/dist/` (Vite build)
+- **Apache** serves that folder and reverse-proxies `/ws` → Node
 
-## Build on the server
+Header shows **build `v0.1.2`** (or newer). If you do not see that version string, the browser is still on an old client.
 
-Do **not** copy `node_modules` from Windows. Install and build on Linux:
+---
+
+## Correct deploy (use this)
+
+Do **not** copy only `packages/` from Windows. That skips root workspace files and often leaves you building/serving a mix of old and new code.
+
+### 1. Full repo on the server via git
 
 ```bash
-cd /var/www/html/towerdefenceworld   # or your clone path
-git pull
+cd /var/www/html/towerdefenceworld
+git fetch origin
+git checkout main
+git pull origin main
+git log -1 --oneline    # confirm you have the latest commit
+```
+
+If this directory is **not** a git clone, fix that once:
+
+```bash
+cd /var/www/html
+# backup your old folder first if needed
+git clone https://github.com/Stretchicus/towerdefenceworld.git
+cd towerdefenceworld
+```
+
+### 2. Clean install + build everything on Linux
+
+```bash
+cd /var/www/html/towerdefenceworld
 rm -rf node_modules packages/*/node_modules
 npm install
 npm run build -w @tdw/game-core
@@ -20,26 +44,69 @@ npm run build -w @tdw/server
 npm run build -w @tdw/client
 ```
 
-Copy `packages/client/dist/*` to your web DocumentRoot (if different from the repo).
+### 3. Point the website at the new client (pick ONE approach)
 
-### Troubleshooting: `tsc: Permission denied` (exit 127)
+**A — Recommended:** set Apache `DocumentRoot` to the build output itself:
 
-Almost always means the npm bin shims are not executable — common if `node_modules` was uploaded from Windows, or the disk is mounted `noexec`.
-
-**Fix (preferred):** delete and reinstall on the server:
-
-```bash
-cd /var/www/html/towerdefenceworld
-rm -rf node_modules packages/*/node_modules
-npm install
-npm run build -w @tdw/game-core
+```apache
+DocumentRoot /var/www/html/towerdefenceworld/packages/client/dist
 ```
 
-**Quick check:** `mount | grep "$(df -P . | tail -1 | awk '{print $1}')"` — if you see `noexec`, Node lives on a bad mount; move the project or remount with `exec`.
+Then you never hand-copy files. After each build, only restart Apache if config changed (usually not needed).
 
-Build scripts invoke TypeScript via `node …/typescript/lib/tsc.js` so they do not rely on `node_modules/.bin/tsc` being `+x`.
+**B — Copy into a separate web root** (must replace *all* files, including `index.html`):
 
-## Run Node (systemd example)
+```bash
+# example: DocumentRoot /var/www/html  or /var/www/tdw
+rsync -a --delete \
+  /var/www/html/towerdefenceworld/packages/client/dist/ \
+  /var/www/html/
+```
+
+`--delete` removes old hashed JS/CSS so you cannot keep serving yesterday’s bundle.
+
+### 4. Restart the game server
+
+```bash
+sudo systemctl restart tdw
+sudo systemctl status tdw --no-pager
+curl -s http://127.0.0.1:3101/health
+# expect: {"ok":true}
+```
+
+### 5. Prove the browser got the new client
+
+1. Hard refresh: Ctrl+Shift+R (or incognito).
+2. Top bar must show **`v0.1.2`** (or higher) next to the status.
+3. Create/join a room → **Leave room** appears top-right.
+4. In combat: gold route tubes + cyan tower pads + **Build tower** list on the right.
+
+If health is ok but the UI has no `v0.1.2`, Apache is serving the **wrong directory** or a cached old `index.html`.
+
+Check which files Apache actually serves:
+
+```bash
+# adjust path to YOUR DocumentRoot
+grep -R "assets/" -n /var/www/html/index.html | head
+ls -lt /var/www/html/assets/ | head
+# timestamps should be from your latest build
+```
+
+---
+
+## What you were doing wrong
+
+| Step | Problem |
+|------|---------|
+| Copy only `packages/` from Windows | Root `package.json` / lockfile / scripts can be stale; easy to miss files |
+| Assume outer JSONs unchanged | They **do** change (ports, build scripts, workspaces) |
+| Copy `client/dist` without `--delete` | Old `assets/index-XXXX.js` can linger; browser may keep old bundles |
+| Wrong DocumentRoot | Updating `/var/www/html/towerdefenceworld/...` while Apache serves `/var/www/html` or `/var/www/tdw` |
+| Soft refresh only | Cached `index.html` points at old hashed JS |
+
+---
+
+## systemd
 
 `/etc/systemd/system/tdw.service`:
 
@@ -50,7 +117,7 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/path/to/towerdefenceworld/packages/server
+WorkingDirectory=/var/www/html/towerdefenceworld/packages/server
 Environment=PORT=3101
 Environment=HOST=127.0.0.1
 ExecStart=/usr/bin/node dist/index.js
@@ -61,49 +128,53 @@ WantedBy=multi-user.target
 ```
 
 ```bash
+sudo systemctl daemon-reload
 sudo systemctl enable --now tdw
 ```
 
-## Apache vhost snippet
-
-Enable modules: `proxy`, `proxy_http`, `proxy_wstunnel`, `headers`.
+## Apache (example)
 
 ```apache
 <VirtualHost *:80>
-  ServerName tdw.example.com
-  DocumentRoot /var/www/tdw
+  ServerName your.domain.or.ip
+  DocumentRoot /var/www/html/towerdefenceworld/packages/client/dist
 
-  <Directory /var/www/tdw>
+  <Directory /var/www/html/towerdefenceworld/packages/client/dist>
     Options -Indexes +FollowSymLinks
     AllowOverride None
     Require all granted
     FallbackResource /index.html
   </Directory>
 
+  # Avoid sticky HTML cache while iterating
+  <Files "index.html">
+    Header set Cache-Control "no-cache"
+  </Files>
+
   ProxyPreserveHost On
   ProxyPass /health http://127.0.0.1:3101/health
   ProxyPassReverse /health http://127.0.0.1:3101/health
-
   ProxyPass /ws ws://127.0.0.1:3101/ws
   ProxyPassReverse /ws ws://127.0.0.1:3101/ws
 </VirtualHost>
 ```
 
-For HTTPS, terminate TLS on Apache and use the same `/ws` proxy (browser will use `wss://`).
+Enable: `proxy`, `proxy_http`, `proxy_wstunnel`, `headers`.
 
-## Local smoke checklist (2 browsers)
+## Troubleshooting: `tsc: Permission denied`
 
-1. `npm install && npm test && npm run build -w @tdw/game-core`
-2. Terminal A: `npm run dev:server` (or `npm run start -w @tdw/server` after build)
-3. Terminal B: `npm run dev:client`
-4. Open http://localhost:5173 — **Create match**
-5. Copy room link into a second browser / incognito — **Join**
-6. Host: Fill AI if needed → Start
-7. Confirm planet renders, phase 1 (auto) enters combat, banks tick, bods spawn
-8. Click a tower-point cell to build; toggle Targets / Bods
-9. Optional: set win rule Timed with short duration in lobby before start
+```bash
+rm -rf node_modules packages/*/node_modules
+npm install
+```
+
+Never copy `node_modules` from Windows.
+
+## Leave button note
+
+**Leave room** only shows after you have joined/created a room (lobby or match). On the bare Create/Join screen there is nothing to leave yet.
 
 ## Known ops notes
 
-- Rooms are in-memory; Node restart drops active matches
+- Rooms are in-memory; restarting `tdw` drops active matches
 - No MySQL required for v1

@@ -50,14 +50,16 @@ interface MatchState {
 }
 
 const TOWER_COST = { stone: 25, power: 10 };
+/** Bump when shipping client UX so deploy can be verified in the header */
+const CLIENT_BUILD = "v0.1.2";
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
   <header class="top">
-    <h1>TOWER DEFENCE WORLD</h1>
+    <h1>TOWER DEFENCE WORLD <span class="build-tag">${CLIENT_BUILD}</span></h1>
     <div class="header-actions">
       <div class="meta" id="status">Connecting…</div>
-      <button id="btn-leave" class="secondary leave-btn" hidden>Leave</button>
+      <button type="button" id="btn-leave" class="secondary leave-btn" hidden>Leave room</button>
     </div>
   </header>
   <div id="viewport">

@@ -131,6 +131,14 @@ header.top h1 {
   color: var(--accent);
 }
 
+.build-tag {
+  font-size: 0.7rem;
+  letter-spacing: 0.04em;
+  color: var(--accent2);
+  margin-left: 0.35rem;
+  font-weight: 500;
+}
+
 header.top .meta {
   color: var(--muted);
   font-size: 0.85rem;
