@@ -41,6 +41,40 @@
       "upgradeStatIncrease": { "power": 0.15, "range": 0.1 },
       "upgradeLevelIncrease": 1.35,
       "friendlyFireDefault": false
+    },
+    "sniper": {
+      "id": "sniper",
+      "power": 8,
+      "range": 4,
+      "aoeSize": 0,
+      "aoeFade": 0,
+      "jump": 0,
+      "jumpLoss": 0,
+      "slowPower": 0,
+      "shotGivesPercent": 0,
+      "shootCost": {},
+      "buildCost": { "stone": 80, "power": 70 },
+      "upgradeCost": { "stone": 50, "power": 50 },
+      "upgradeStatIncrease": { "power": 0.12, "range": 0.08 },
+      "upgradeLevelIncrease": 1.35,
+      "friendlyFireDefault": false
+    },
+    "mortar": {
+      "id": "mortar",
+      "power": 16,
+      "range": 1,
+      "aoeSize": 0,
+      "aoeFade": 0,
+      "jump": 0,
+      "jumpLoss": 0,
+      "slowPower": 0,
+      "shotGivesPercent": 0,
+      "shootCost": {},
+      "buildCost": { "stone": 85, "power": 65 },
+      "upgradeCost": { "stone": 55, "power": 45 },
+      "upgradeStatIncrease": { "power": 0.2, "range": 0.05 },
+      "upgradeLevelIncrease": 1.35,
+      "friendlyFireDefault": false
     }
   },
   "mines": {

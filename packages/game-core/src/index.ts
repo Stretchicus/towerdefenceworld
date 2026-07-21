@@ -68,3 +68,14 @@ export type {
   MineStructure,
   BodInstance,
 } from "./sim/match.js";
+export {
+  TOWER_POINT_POOL,
+  scoreTowerPoints,
+  validateTowerDef,
+  validateLoadout,
+  defaultTowerLoadout,
+  blankTower,
+  parseLoadoutFile,
+  loadoutFileFromTowers,
+} from "./towers/loadout.js";
+export type { ValidationResult, LoadoutFileV1 } from "./towers/loadout.js";

@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@tdw/game-core": "^0.1.0",
     "three": "^0.174.0"
   },
   "devDependencies": {

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import {
   createMatch,
+  defaultTowerLoadout,
   intentBuildTower,
   intentClaimMine,
   intentPlaceTile,
@@ -12,9 +13,11 @@ import {
   runAiPlacement,
   serializeMatch,
   tickMatch,
+  validateLoadout,
   type LobbySettings,
   type MatchState,
   type MatchSnapshot,
+  type TowerDef,
   type UpgradeTarget,
 } from "@tdw/game-core";
 
@@ -24,6 +27,7 @@ export type ClientMessage =
   | { type: "ready" }
   | { type: "start"; settings?: Partial<LobbySettings> }
   | { type: "setLobby"; settings: Partial<LobbySettings> }
+  | { type: "setLoadout"; towers: TowerDef[] }
   | { type: "fillAi" }
   | {
       type: "placeTile";
@@ -55,6 +59,7 @@ export interface LobbySnapshot {
     isAi: boolean;
     ready: boolean;
     token: string;
+    loadout: TowerDef[];
   }[];
   hostId: string;
 }
@@ -65,6 +70,7 @@ interface Seat {
   isAi: boolean;
   ready: boolean;
   token: string;
+  loadout: TowerDef[];
   send?: (msg: ServerMessage) => void;
 }
 
@@ -109,6 +115,7 @@ function lobbySnapshot(room: Room): LobbySnapshot {
       isAi: s.isAi,
       ready: s.ready,
       token: s.token,
+      loadout: s.loadout,
     })),
     hostId: room.hostId,
   };
@@ -174,6 +181,7 @@ export function handleMessage(
         isAi: false,
         ready: false,
         token: token(),
+        loadout: defaultTowerLoadout(),
         send,
       };
       const settings = { ...defaultSettings(), ...raw.settings };
@@ -234,6 +242,7 @@ export function handleMessage(
         seat.isAi = false;
         seat.ready = false;
         seat.token = token();
+        seat.loadout = defaultTowerLoadout();
         seat.send = send;
       } else {
         if (room.seats.length >= room.settings.seatCount) {
@@ -247,6 +256,7 @@ export function handleMessage(
           isAi: false,
           ready: false,
           token: token(),
+          loadout: defaultTowerLoadout(),
           send,
         };
         room.seats.push(seat);
@@ -307,12 +317,43 @@ export function handleMessage(
             isAi: true,
             ready: true,
             token: token(),
+            loadout: defaultTowerLoadout(),
           });
         }
         broadcastState(room);
         break;
       }
+      case "setLoadout": {
+        if (room.match) {
+          send({ type: "error", message: "Loadout locked after start" });
+          break;
+        }
+        if (seat.isAi) {
+          send({ type: "error", message: "AI loadout is fixed" });
+          break;
+        }
+        const checked = validateLoadout(raw.towers);
+        if (!checked.ok) {
+          send({
+            type: "error",
+            message: checked.errors.join("; "),
+          });
+          break;
+        }
+        seat.loadout = structuredClone(raw.towers);
+        seat.ready = false;
+        broadcastState(room);
+        break;
+      }
       case "ready": {
+        const checked = validateLoadout(seat.loadout);
+        if (!checked.ok) {
+          send({
+            type: "error",
+            message: `Invalid loadout: ${checked.errors.join("; ")}`,
+          });
+          break;
+        }
         seat.ready = true;
         broadcastState(room);
         break;
@@ -339,7 +380,22 @@ export function handleMessage(
             isAi: true,
             ready: true,
             token: token(),
+            loadout: defaultTowerLoadout(),
           });
+        }
+        for (const s of room.seats) {
+          if (s.isAi) {
+            s.loadout = defaultTowerLoadout();
+            continue;
+          }
+          const checked = validateLoadout(s.loadout);
+          if (!checked.ok) {
+            send({
+              type: "error",
+              message: `${s.name}: invalid loadout — ${checked.errors.join("; ")}`,
+            });
+            return ctx;
+          }
         }
         room.match = createMatch({
           id: room.code,
@@ -349,6 +405,7 @@ export function handleMessage(
             id: s.id,
             name: s.name,
             isAi: s.isAi,
+            loadout: s.isAi ? defaultTowerLoadout() : s.loadout,
           })),
         });
         startTicks(room);

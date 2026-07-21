@@ -10,15 +10,21 @@ import {
   createMatch,
   createPlacementState,
   createRng,
+  defaultTowerLoadout,
   generateTileBag,
   defaultGameConfig,
   findPath,
+  intentBuildTower,
   pay,
   scaleCost,
+  scoreTowerPoints,
   serializeMatch,
   startingBankFor,
+  TOWER_POINT_POOL,
   tickMatch,
   runAiPlacement,
+  validateLoadout,
+  validateTowerDef,
 } from "./index.js";
 
 describe("goldberg planet", () => {
@@ -238,6 +244,57 @@ describe("match combat", () => {
     const l1 = scaleCost(base, 1.35, 1);
     assert.equal(l0.stone, 40);
     assert.ok((l1.stone ?? 0) > (l0.stone ?? 0));
+  });
+
+  it("default tower loadout is point-legal", () => {
+    const loadout = defaultTowerLoadout();
+    assert.equal(loadout.length, 3);
+    const v = validateLoadout(loadout);
+    assert.equal(v.ok, true, v.ok ? "" : v.errors.join("; "));
+    for (const t of loadout) {
+      assert.ok(
+        scoreTowerPoints(t) <= TOWER_POINT_POOL,
+        `${t.id} score ${scoreTowerPoints(t)}`,
+      );
+    }
+    const broken = { ...loadout[0]!, power: 40, range: 6 };
+    assert.equal(validateTowerDef(broken).ok, false);
+  });
+
+  it("buildTower uses loadout typeId and cost", () => {
+    const match = createMatch({
+      id: "loadout-build",
+      seed: 3,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 3,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+      ],
+    });
+    const pad = [...match.placement.placed.values()].find(
+      (p) => p.tile.hasTowerPoint,
+    );
+    assert.ok(pad, "need a tower pad");
+    const sniper = match.players[0]!.loadout.find((t) => t.id === "sniper");
+    assert.ok(sniper);
+    match.players[0]!.bank = {
+      stone: sniper!.buildCost.stone ?? 0,
+      power: sniper!.buildCost.power ?? 0,
+      water: 10,
+    };
+    const r = intentBuildTower(match, "p1", pad!.cellId, "sniper");
+    assert.equal(r.ok, true, r.error);
+    assert.equal(match.towers[0]?.typeId, "sniper");
+    assert.equal(match.players[0]!.bank.stone, 0);
+    const snap = serializeMatch(match);
+    assert.ok(snap.players[0]!.loadout.some((t) => t.id === "sniper"));
   });
 
   it("manual placement waits on human; AI does not dump the bag", () => {

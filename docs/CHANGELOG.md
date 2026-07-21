@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.21 — 2026-07-21
+
+### Added
+
+- Per-player tower loadouts (basic / sniper / mortar) with 100-point budget
+- Lobby tower workshop: sliders, JSON, download/upload `tdw-loadout-v1.json`
+- Combat pad type picker; bod upgrade buttons with level-scaled costs
+
+### Docs
+
+- Design: `docs/superpowers/specs/2026-07-21-tower-loadouts-workshop-design.md`
+
 ## 0.1.13 — 2026-07-21
 
 ### Fixed

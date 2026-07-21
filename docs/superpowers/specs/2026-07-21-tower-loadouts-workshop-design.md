@@ -1,7 +1,7 @@
 # Multi-tower loadouts, workshop & bod upgrades — design
 
 Date: 2026-07-21  
-Status: approved (pending user file review)  
+Status: implemented  
 Approach: #2 — per-player loadout + point-budget workshop
 
 ## Goals

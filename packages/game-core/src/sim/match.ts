@@ -33,8 +33,13 @@ import type {
   Planet,
   ResourceMap,
   TileDef,
+  TowerDef,
   UpgradeTarget,
 } from "../types.js";
+import {
+  defaultTowerLoadout,
+  validateLoadout,
+} from "../towers/loadout.js";
 
 export interface PlayerState {
   id: string;
@@ -52,6 +57,8 @@ export interface PlayerState {
   /** Spawn assignment counters for round-robin */
   assignCounts: Record<string, number>;
   alive: boolean;
+  /** Per-player tower types (point-budget validated) */
+  loadout: TowerDef[];
 }
 
 export interface TowerStructure {
@@ -141,8 +148,24 @@ export interface CreateMatchInput {
   id: string;
   seed: number;
   settings: LobbySettings;
-  seats: { id: string; name: string; isAi: boolean }[];
+  seats: {
+    id: string;
+    name: string;
+    isAi: boolean;
+    loadout?: TowerDef[];
+  }[];
   config?: GameConfig;
+}
+
+function resolveSeatLoadout(
+  seat: CreateMatchInput["seats"][number],
+): TowerDef[] {
+  if (seat.isAi) return defaultTowerLoadout();
+  if (seat.loadout?.length) {
+    const v = validateLoadout(seat.loadout);
+    if (v.ok) return seat.loadout.map((t) => structuredClone(t));
+  }
+  return defaultTowerLoadout();
 }
 
 export function createMatch(input: CreateMatchInput): MatchState {
@@ -196,6 +219,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
       bodLevels,
       assignCounts: Object.fromEntries(others.map((o) => [o, 0])),
       alive: true,
+      loadout: resolveSeatLoadout(s),
     };
   });
 
@@ -466,7 +490,7 @@ export function intentBuildTower(
   state: MatchState,
   playerId: string,
   cellId: number,
-  typeId = "basic",
+  typeId?: string,
 ): { ok: boolean; error?: string } {
   if (state.phase !== "combat") return { ok: false, error: "not_combat" };
   const player = state.players.find((p) => p.id === playerId);
@@ -479,7 +503,12 @@ export function intentBuildTower(
   if (state.mines.some((m) => m.cellId === cellId)) {
     return { ok: false, error: "occupied" };
   }
-  const def = state.config.towers[typeId];
+  const resolvedType =
+    typeId && player.loadout.some((t) => t.id === typeId)
+      ? typeId
+      : player.loadout[0]?.id;
+  if (!resolvedType) return { ok: false, error: "bad_type" };
+  const def = player.loadout.find((t) => t.id === resolvedType);
   if (!def) return { ok: false, error: "bad_type" };
   const cost = filterCostToResources(def.buildCost, state.resources);
   if (!canAfford(player.bank, cost)) return { ok: false, error: "funds" };
@@ -488,7 +517,7 @@ export function intentBuildTower(
     id: `tw-${state.nextEntityId++}`,
     cellId,
     ownerId: playerId,
-    typeId,
+    typeId: resolvedType,
     level: 0,
     friendlyFire: def.friendlyFireDefault,
     cooldown: 0,
@@ -547,7 +576,8 @@ export function intentUpgrade(
       (x) => x.id === target.structureId && x.ownerId === playerId,
     );
     if (!t) return { ok: false, error: "missing" };
-    const def = state.config.towers[t.typeId]!;
+    const def = resolveTowerDef(state, t);
+    if (!def) return { ok: false, error: "missing" };
     const cost = filterCostToResources(
       scaleCost(def.upgradeCost, def.upgradeLevelIncrease, t.level),
       state.resources,
@@ -606,14 +636,27 @@ export function intentUpgrade(
   return { ok: false, error: "bad_target" };
 }
 
+function resolveTowerDef(
+  state: MatchState,
+  t: TowerStructure,
+): TowerDef | undefined {
+  const owner = state.players.find((p) => p.id === t.ownerId);
+  return (
+    owner?.loadout.find((d) => d.id === t.typeId) ??
+    state.config.towers[t.typeId]
+  );
+}
+
 function towerPower(state: MatchState, t: TowerStructure): number {
-  const def = state.config.towers[t.typeId]!;
+  const def = resolveTowerDef(state, t);
+  if (!def) return 0;
   const inc = def.upgradeStatIncrease.power ?? 0;
   return def.power * (1 + inc * t.level);
 }
 
 function towerRange(state: MatchState, t: TowerStructure): number {
-  const def = state.config.towers[t.typeId]!;
+  const def = resolveTowerDef(state, t);
+  if (!def) return 1;
   const inc = def.upgradeStatIncrease.range ?? 0;
   return def.range * (1 + inc * t.level);
 }
@@ -848,7 +891,8 @@ export function runAiCombat(state: MatchState): void {
       if (state.towers.some((t) => t.cellId === cellId)) continue;
       const dist = pathLength(state.routeGraph, home, cellId);
       if (dist > 4) continue;
-      const r = intentBuildTower(state, p.id, cellId, "basic");
+      const typeId = p.loadout[0]?.id ?? "basic";
+      const r = intentBuildTower(state, p.id, cellId, typeId);
       if (r.ok) {
         built = true;
         break;
@@ -921,21 +965,12 @@ export function serializeMatch(state: MatchState) {
       bodLevels: p.bodLevels,
       alive: p.alive,
       baseCellId: baseCell(state, p.id),
+      loadout: p.loadout,
     })),
     towers: state.towers,
     mines: state.mines,
     bodMoveEveryTicks: state.config.bodMoveEveryTicks,
     costs: {
-      towerBuild: filterCostToResources(
-        state.config.towers.basic?.buildCost ?? {},
-        state.resources,
-      ),
-      towerUpgradeBase: filterCostToResources(
-        state.config.towers.basic?.upgradeCost ?? {},
-        state.resources,
-      ),
-      towerUpgradeLevelIncrease:
-        state.config.towers.basic?.upgradeLevelIncrease ?? 1.35,
       baseUpgradeBase: filterCostToResources(
         state.config.base.upgradeCost,
         state.resources,
@@ -945,6 +980,15 @@ export function serializeMatch(state: MatchState) {
         Object.entries(state.config.bods).map(([id, def]) => [
           id,
           filterCostToResources(def.resourcesToBuild, state.resources),
+        ]),
+      ),
+      bodUpgrades: Object.fromEntries(
+        Object.entries(state.config.bods).map(([id, def]) => [
+          id,
+          {
+            base: filterCostToResources(def.upgradeCost, state.resources),
+            levelIncrease: def.upgradeLevelIncrease,
+          },
         ]),
       ),
     },

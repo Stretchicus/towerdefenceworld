@@ -529,6 +529,146 @@ button.secondary {
   font-size: 0.9rem;
 }
 
+.workshop {
+  margin: 0.85rem 0 0.5rem;
+  padding-top: 0.65rem;
+  border-top: 1px solid var(--line);
+}
+
+.ws-tower-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.4rem 0;
+}
+
+.ws-tower-tab {
+  font-size: 0.75rem;
+}
+
+.ws-tower-tab.on {
+  border-color: var(--accent2);
+  color: var(--accent2);
+}
+
+.ws-tower-tab.over {
+  border-color: var(--danger);
+  color: var(--danger);
+}
+
+.ws-pts {
+  opacity: 0.75;
+  margin-left: 0.25rem;
+}
+
+.ws-actions {
+  margin: 0.35rem 0;
+}
+
+.ws-upload {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.ws-simple {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+
+.ws-simple label {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr 2.2rem;
+  gap: 0.4rem;
+  align-items: center;
+  font-size: 0.8rem;
+}
+
+.ws-meter {
+  position: relative;
+  height: 1.4rem;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+  margin-top: 0.35rem;
+  overflow: hidden;
+}
+
+.ws-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(61, 214, 198, 0.35);
+}
+
+.ws-meter.over .ws-meter-fill {
+  background: rgba(224, 80, 80, 0.45);
+}
+
+.ws-meter span {
+  position: relative;
+  z-index: 1;
+  display: block;
+  text-align: center;
+  font-size: 0.75rem;
+  line-height: 1.4rem;
+}
+
+.ws-json {
+  width: 100%;
+  min-height: 10rem;
+  margin-top: 0.5rem;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.72rem;
+  background: rgba(0, 0, 0, 0.45);
+  color: var(--text);
+  border: 1px solid var(--line);
+  padding: 0.5rem;
+}
+
+.ws-errors {
+  color: var(--danger);
+  font-size: 0.78rem;
+  margin: 0.4rem 0 0;
+  padding-left: 1.1rem;
+}
+
+.ws-ok {
+  color: var(--accent);
+}
+
+.type-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.35rem 0 0.55rem;
+}
+
+.type-chip {
+  border-left: 3px solid var(--type-color, var(--accent));
+}
+
+.bod-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.bod-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.bod-up-btn {
+  font-size: 0.75rem;
+  text-align: left;
+}
+
 @media (max-width: 720px) {
   .side-left,
   .side-right {

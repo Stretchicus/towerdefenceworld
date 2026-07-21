@@ -1,6 +1,14 @@
 import "./styles.css";
 import { GameSocket, type ServerMessage } from "./net.js";
 import { PlanetView, type PlanetViewData } from "./planetView.js";
+import {
+  bindWorkshop,
+  createWorkshopState,
+  isWorkshopValid,
+  workshopHtml,
+  type WorkshopState,
+} from "./loadoutWorkshop.js";
+import type { TowerDef } from "@tdw/game-core";
 
 interface LobbyState {
   phase: "lobby";
@@ -13,7 +21,13 @@ interface LobbyState {
     resourceCount: number;
     seatCount: number;
   };
-  seats: { id: string; name: string; isAi: boolean; ready: boolean }[];
+  seats: {
+    id: string;
+    name: string;
+    isAi: boolean;
+    ready: boolean;
+    loadout?: TowerDef[];
+  }[];
   hostId: string;
 }
 
@@ -51,13 +65,16 @@ interface MatchState {
     baseLevel?: number;
     targetEnabled: Record<string, boolean>;
     bodEnabled: Record<string, boolean>;
+    bodLevels?: Record<string, number>;
     alive: boolean;
     baseCellId: number;
+    loadout?: TowerDef[];
   }[];
   towers: {
     id: string;
     cellId: number;
     ownerId: string;
+    typeId?: string;
     level?: number;
     friendlyFire: boolean;
   }[];
@@ -73,18 +90,24 @@ interface MatchState {
   corridorCellIds?: number[];
   bodMoveEveryTicks?: number;
   costs?: {
-    towerBuild: Record<string, number>;
-    towerUpgradeBase: Record<string, number>;
-    towerUpgradeLevelIncrease: number;
     baseUpgradeBase: Record<string, number>;
     baseUpgradeLevelIncrease: number;
     bods: Record<string, Record<string, number>>;
+    bodUpgrades?: Record<
+      string,
+      { base: Record<string, number>; levelIncrease: number }
+    >;
   };
 }
 
-const CLIENT_BUILD = "v0.1.20";
+const CLIENT_BUILD = "v0.1.21";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
+const TOWER_TYPE_COLORS: Record<string, string> = {
+  basic: "#3dd6c6",
+  sniper: "#7aa2ff",
+  mortar: "#f0a05a",
+};
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
@@ -126,8 +149,12 @@ let lastError = "";
 let planetBuiltFor = "";
 let hudShellKey = "";
 let selectedBuildCell: number | null = null;
+let showTypePicker = false;
 let placementRotation = 0;
 let hoverCellId: number | null = null;
+let workshop: WorkshopState | null = null;
+let workshopSyncKey = "";
+let pushLoadoutTimer: ReturnType<typeof setTimeout> | null = null;
 
 const params = new URLSearchParams(location.search);
 const joinRoom = params.get("room");
@@ -159,6 +186,13 @@ function resetToMenu(): void {
   planetBuiltFor = "";
   hudShellKey = "";
   selectedBuildCell = null;
+  showTypePicker = false;
+  workshop = null;
+  workshopSyncKey = "";
+  if (pushLoadoutTimer) {
+    clearTimeout(pushLoadoutTimer);
+    pushLoadoutTimer = null;
+  }
   localStorage.removeItem("tdw_room");
   localStorage.removeItem("tdw_token");
   localStorage.removeItem("tdw_player");
@@ -202,18 +236,43 @@ function freeTowerPads(m: MatchState): number[] {
     .map((p) => p.cellId);
 }
 
+function myLoadout(m?: MatchState | null): TowerDef[] {
+  const fromMatch = (m ?? lastMatch)?.players.find((p) => p.id === playerId)
+    ?.loadout;
+  if (fromMatch?.length) return fromMatch;
+  const fromLobby = lastLobby?.seats.find((s) => s.id === playerId)?.loadout;
+  if (fromLobby?.length) return fromLobby;
+  return workshop?.towers ?? [];
+}
+
+function towerDefFor(
+  m: MatchState,
+  typeId: string | undefined,
+  ownerId?: string,
+): TowerDef | undefined {
+  const owner =
+    m.players.find((p) => p.id === (ownerId ?? playerId)) ?? me();
+  return owner?.loadout?.find((t) => t.id === typeId) ?? owner?.loadout?.[0];
+}
+
 function matchCosts(m: MatchState) {
   return {
-    towerBuild: m.costs?.towerBuild ?? FALLBACK_TOWER,
-    towerUpgradeBase: m.costs?.towerUpgradeBase ?? { stone: 40, power: 30 },
-    towerUpgradeLevelIncrease: m.costs?.towerUpgradeLevelIncrease ?? 1.35,
     baseUpgradeBase: m.costs?.baseUpgradeBase ?? { stone: 40, power: 30 },
     baseUpgradeLevelIncrease: m.costs?.baseUpgradeLevelIncrease ?? 1.4,
     bods: m.costs?.bods ?? {
       grunt: { stone: 4, water: 2 },
       bruiser: { stone: 12, power: 6 },
     },
+    bodUpgrades: m.costs?.bodUpgrades ?? {},
   };
+}
+
+function towerBuildCost(
+  m: MatchState,
+  typeId: string,
+): Record<string, number> {
+  const def = towerDefFor(m, typeId);
+  return def?.buildCost ?? FALLBACK_TOWER;
 }
 
 /** Mirror server scaleCost — ceil(base * mult^level) */
@@ -232,14 +291,25 @@ function scaleCostClient(
 
 function towerUpgradeCost(
   m: MatchState,
-  tower: { level?: number },
+  tower: { level?: number; typeId?: string; ownerId?: string },
 ): Record<string, number> {
-  const c = matchCosts(m);
+  const def = towerDefFor(m, tower.typeId, tower.ownerId);
   return scaleCostClient(
-    c.towerUpgradeBase,
-    c.towerUpgradeLevelIncrease,
+    def?.upgradeCost ?? { stone: 40, power: 30 },
+    def?.upgradeLevelIncrease ?? 1.35,
     tower.level ?? 0,
   );
+}
+
+function bodUpgradeCost(
+  m: MatchState,
+  bodTypeId: string,
+  level: number,
+): Record<string, number> {
+  const c = matchCosts(m);
+  const up = c.bodUpgrades[bodTypeId];
+  if (!up) return { stone: 8, power: 4 };
+  return scaleCostClient(up.base, up.levelIncrease, level);
 }
 
 function baseUpgradeCost(
@@ -252,6 +322,16 @@ function baseUpgradeCost(
     c.baseUpgradeLevelIncrease,
     self?.baseLevel ?? 0,
   );
+}
+
+function schedulePushLoadout(): void {
+  if (!workshop || !lastLobby) return;
+  if (!isWorkshopValid(workshop)) return;
+  if (pushLoadoutTimer) clearTimeout(pushLoadoutTimer);
+  pushLoadoutTimer = setTimeout(() => {
+    if (!workshop || !isWorkshopValid(workshop)) return;
+    socket.send({ type: "setLoadout", towers: workshop.towers });
+  }, 280);
 }
 
 function canAffordCost(
@@ -350,6 +430,27 @@ function renderLobby(): void {
   updateHealthBar(null);
   const s = lastLobby;
   updateLeaveBtn();
+
+  if (s) {
+    const mySeat = s.seats.find((seat) => seat.id === playerId);
+    const key = `${s.room}:${playerId}:${(mySeat?.loadout ?? [])
+      .map((t) => t.id)
+      .join(",")}`;
+    if (!workshop || workshopSyncKey !== key) {
+      workshop = createWorkshopState(mySeat?.loadout);
+      workshopSyncKey = key;
+    }
+  } else {
+    workshop = null;
+    workshopSyncKey = "";
+  }
+
+  const workshopBlock =
+    s && workshop
+      ? workshopHtml(workshop)
+      : "";
+  const loadoutOk = workshop ? isWorkshopValid(workshop) : true;
+
   hud.innerHTML = `
     <div class="panel lobby">
       <h2>COMMAND LOBBY</h2>
@@ -360,7 +461,11 @@ function renderLobby(): void {
         <ul class="seat-list">${s.seats
           .map(
             (seat) =>
-              `<li>${seat.name}${seat.isAi ? " (AI)" : ""}${seat.ready ? " ✓" : ""}${seat.id === playerId ? " ← you" : ""}</li>`,
+              `<li>${seat.name}${seat.isAi ? " (AI)" : ""}${seat.ready ? " ✓" : ""}${seat.id === playerId ? " ← you" : ""}${
+                seat.loadout?.length
+                  ? ` · [${seat.loadout.map((t) => t.id).join(", ")}]`
+                  : ""
+              }</li>`,
           )
           .join("")}</ul>
         <div class="row">
@@ -414,9 +519,10 @@ function renderLobby(): void {
             </select>
           </label>
         </div>
+        ${workshopBlock}
         <div class="row">
           <button id="btn-ai" class="secondary">Fill AI</button>
-          <button id="btn-ready">Ready</button>
+          <button id="btn-ready" ${loadoutOk ? "" : "disabled"} title="${loadoutOk ? "" : "Fix loadout first"}">Ready</button>
           <button id="btn-start">Start</button>
         </div>
         <p style="font-size:0.8rem;color:var(--muted)">Share: ${location.origin}?room=${s.room}</p>`
@@ -447,6 +553,14 @@ function renderLobby(): void {
     return;
   }
 
+  const wsRoot = document.getElementById("tower-workshop");
+  if (wsRoot && workshop) {
+    bindWorkshop(wsRoot, workshop, () => {
+      schedulePushLoadout();
+      paint();
+    });
+  }
+
   const readLobbySettings = () => ({
     mode: (document.getElementById("mode") as HTMLSelectElement).value,
     winRule: (document.getElementById("win") as HTMLSelectElement).value,
@@ -475,9 +589,20 @@ function renderLobby(): void {
     socket.send({ type: "fillAi" });
   });
   document.getElementById("btn-ready")?.addEventListener("click", () => {
+    if (workshop && !isWorkshopValid(workshop)) {
+      lastError = "Fix tower loadout before Ready";
+      paint();
+      return;
+    }
+    if (workshop && isWorkshopValid(workshop)) {
+      socket.send({ type: "setLoadout", towers: workshop.towers });
+    }
     socket.send({ type: "ready" });
   });
   document.getElementById("btn-start")?.addEventListener("click", () => {
+    if (workshop && isWorkshopValid(workshop)) {
+      socket.send({ type: "setLoadout", towers: workshop.towers });
+    }
     socket.send({ type: "start", settings: readLobbySettings() });
   });
 }
@@ -497,27 +622,49 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
       socket.send({ type: "toggleBod", bodTypeId: id, enabled: !on });
     });
   });
+  hud.querySelectorAll("[data-bod-up]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if ((btn as HTMLButtonElement).disabled) return;
+      const bodTypeId = (btn as HTMLElement).dataset.bodUp!;
+      socket.send({
+        type: "upgrade",
+        target: { kind: "bod", bodTypeId },
+      });
+    });
+  });
   hud.querySelectorAll("[data-build]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const cellId = Number((btn as HTMLElement).dataset.build);
       if (!Number.isFinite(cellId) || !lastMatch) return;
+      if (selectedBuildCell === cellId && showTypePicker) {
+        return;
+      }
       if (selectedBuildCell === cellId) {
-        // Second click: build (tower type picker comes later)
-        const selfNow = me();
-        const costs = matchCosts(lastMatch);
-        if (!selfNow || !canAffordCost(selfNow.bank, costs.towerBuild)) {
-          lastError = "Need more resources for a tower";
-          paint();
-          return;
-        }
+        showTypePicker = true;
         lastError = "";
-        socket.send({ type: "buildTower", cellId });
+        paint();
         return;
       }
       selectedBuildCell = cellId;
+      showTypePicker = false;
       lastError = "";
       planet.focusCell(cellId);
       paint();
+    });
+  });
+  hud.querySelectorAll("[data-build-type]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      if ((btn as HTMLButtonElement).disabled) return;
+      const typeId = (btn as HTMLElement).dataset.buildType!;
+      if (selectedBuildCell === null || !lastMatch) return;
+      lastError = "";
+      socket.send({
+        type: "buildTower",
+        cellId: selectedBuildCell,
+        typeId,
+      });
+      showTypePicker = false;
+      selectedBuildCell = null;
     });
   });
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
@@ -553,7 +700,10 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
 
 function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
   const costs = matchCosts(m);
-  const affordTower = self ? canAffordCost(self.bank, costs.towerBuild) : false;
+  const loadout = myLoadout(m);
+  const anyAfford = loadout.some(
+    (t) => self && canAffordCost(self.bank, towerBuildCost(m, t.id)),
+  );
   const baseCost = baseUpgradeCost(m, self);
   const affordBase = self ? canAffordCost(self.bank, baseCost) : false;
 
@@ -579,36 +729,65 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
     const el = btn as HTMLButtonElement;
     const cellId = Number(el.dataset.build);
     el.classList.toggle("selected", selectedBuildCell === cellId);
-    el.classList.toggle("cant-afford", !affordTower);
-    el.classList.toggle("ready-build", selectedBuildCell === cellId && affordTower);
+    el.classList.toggle("cant-afford", !anyAfford);
+    el.classList.toggle(
+      "ready-build",
+      selectedBuildCell === cellId && (showTypePicker || anyAfford),
+    );
   });
   const padHint = document.getElementById("pad-hint");
   if (padHint) {
     if (selectedBuildCell === null) {
       padHint.textContent =
-        "Tap a pad to spin the map to it · tap again to build";
-    } else if (!affordTower) {
-      padHint.textContent = `Pad #${selectedBuildCell} selected — need resources to build`;
+        "Tap a pad to focus · tap again to choose tower type";
+    } else if (showTypePicker) {
+      padHint.textContent = `Pad #${selectedBuildCell} — pick a tower type`;
     } else {
-      padHint.textContent = `Pad #${selectedBuildCell} selected — tap again to build`;
+      padHint.textContent = `Pad #${selectedBuildCell} selected — tap again for types`;
     }
   }
-  const padCost = document.getElementById("pad-cost");
-  if (padCost) {
-    padCost.innerHTML = costChipsHtml(costs.towerBuild, affordTower);
+  const typePicker = document.getElementById("type-picker");
+  if (typePicker && self) {
+    typePicker.innerHTML = loadout
+      .map((t) => {
+        const cost = towerBuildCost(m, t.id);
+        const afford = canAffordCost(self.bank, cost);
+        const color = TOWER_TYPE_COLORS[t.id] ?? "#9ab";
+        return `<button type="button" class="build-btn type-chip ${afford ? "" : "cant-afford"}" data-build-type="${t.id}" ${afford && showTypePicker ? "" : "disabled"} style="--type-color:${color}">
+          <span class="btn-label">${t.id} · p${t.power} r${t.range}</span>
+          <span class="cost-row">${costChipsHtml(cost, afford)}</span>
+        </button>`;
+      })
+      .join("");
+    typePicker.querySelectorAll("[data-build-type]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if ((btn as HTMLButtonElement).disabled) return;
+        const typeId = (btn as HTMLElement).dataset.buildType!;
+        if (selectedBuildCell === null) return;
+        socket.send({
+          type: "buildTower",
+          cellId: selectedBuildCell,
+          typeId,
+        });
+        showTypePicker = false;
+        selectedBuildCell = null;
+      });
+    });
   }
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
     const el = btn as HTMLButtonElement;
     const structureId = el.dataset.upTower!;
     const tower = m.towers.find((t) => t.id === structureId);
-    const upCost = tower ? towerUpgradeCost(m, tower) : costs.towerUpgradeBase;
+    const upCost = tower
+      ? towerUpgradeCost(m, tower)
+      : { stone: 40, power: 30 };
     const afford = self ? canAffordCost(self.bank, upCost) : false;
     el.disabled = !afford;
     const chips = el.querySelector(".cost-row");
     if (chips) chips.innerHTML = costChipsHtml(upCost, afford);
     const label = el.querySelector(".btn-label");
     if (label && tower) {
-      label.textContent = `Upgrade #${tower.cellId} (L${(tower.level ?? 0) + 1})`;
+      label.textContent = `Upgrade ${tower.typeId ?? "tower"} #${tower.cellId} (L${(tower.level ?? 0) + 1})`;
     }
   });
   const baseBtn = document.getElementById(
@@ -633,6 +812,18 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
     const chips = el.querySelector(".cost-row");
     if (chips) chips.innerHTML = costChipsHtml(cost, afford);
   });
+  hud.querySelectorAll("[data-bod-up]").forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    const id = el.dataset.bodUp!;
+    const level = self?.bodLevels?.[id] ?? 0;
+    const upCost = bodUpgradeCost(m, id, level);
+    const afford = self ? canAffordCost(self.bank, upCost) : false;
+    el.disabled = !afford;
+    const chips = el.querySelector(".cost-row");
+    if (chips) chips.innerHTML = costChipsHtml(upCost, afford);
+    const label = el.querySelector(".btn-label");
+    if (label) label.textContent = `Upgrade ${id} (L${level + 1})`;
+  });
 
   updateHealthBar(m);
 }
@@ -643,13 +834,17 @@ function renderMatch(): void {
   updateLeaveBtn();
   const self = me();
   const costs = matchCosts(m);
-  const affordTower = self ? canAffordCost(self.bank, costs.towerBuild) : false;
+  const loadout = myLoadout(m);
+  const anyAfford = loadout.some(
+    (t) => self && canAffordCost(self.bank, towerBuildCost(m, t.id)),
+  );
   const baseCost = baseUpgradeCost(m, self);
   const affordBase = self ? canAffordCost(self.bank, baseCost) : false;
 
   const pads = freeTowerPads(m);
   if (selectedBuildCell !== null && !pads.includes(selectedBuildCell)) {
     selectedBuildCell = null;
+    showTypePicker = false;
   }
   const myTowers = m.towers.filter((t) => t.ownerId === playerId);
 
@@ -670,7 +865,7 @@ function renderMatch(): void {
     myTurn ? "1" : "0",
     placementRotation,
     pads.join(","),
-    myTowers.map((t) => `${t.id}:${t.level ?? 0}`).join(","),
+    myTowers.map((t) => `${t.id}:${t.level ?? 0}:${t.typeId ?? ""}`).join(","),
     self?.baseLevel ?? 0,
     Object.entries(self?.targetEnabled ?? {})
       .map(([k, v]) => `${k}:${v}`)
@@ -678,8 +873,13 @@ function renderMatch(): void {
     Object.entries(self?.bodEnabled ?? {})
       .map(([k, v]) => `${k}:${v}`)
       .join(","),
+    Object.entries(self?.bodLevels ?? {})
+      .map(([k, v]) => `${k}:${v}`)
+      .join(","),
     m.winnerIds.join(","),
     selectedBuildCell ?? "",
+    showTypePicker ? "1" : "0",
+    loadout.map((t) => t.id).join(","),
   ].join("|");
 
   if (shellKey === hudShellKey && hud.querySelector(".side-left")) {
@@ -701,25 +901,53 @@ function renderMatch(): void {
           .map(([id, on]) => {
             const cost = costs.bods[id] ?? {};
             const afford = canAffordCost(self.bank, cost);
-            return `<button class="chip ${on ? "on" : "off"} ${afford ? "" : "cant-afford"}" data-bod="${id}">
-              <span>${id}</span>
-              <span class="cost-row">${costChipsHtml(cost, afford)}</span>
-            </button>`;
+            const level = self.bodLevels?.[id] ?? 0;
+            const upCost = bodUpgradeCost(m, id, level);
+            const affordUp = canAffordCost(self.bank, upCost);
+            return `<div class="bod-row">
+              <button class="chip ${on ? "on" : "off"} ${afford ? "" : "cant-afford"}" data-bod="${id}">
+                <span>${id}</span>
+                <span class="cost-row">${costChipsHtml(cost, afford)}</span>
+              </button>
+              <button type="button" class="secondary bod-up-btn" data-bod-up="${id}" ${affordUp ? "" : "disabled"}>
+                <span class="btn-label">Upgrade ${id} (L${level + 1})</span>
+                <span class="cost-row">${costChipsHtml(upCost, affordUp)}</span>
+              </button>
+            </div>`;
           })
           .join("")
       : "";
+
+    const typePickerHtml =
+      showTypePicker && selectedBuildCell !== null
+        ? `<div class="type-picker" id="type-picker">
+            ${loadout
+              .map((t) => {
+                const cost = towerBuildCost(m, t.id);
+                const afford = self
+                  ? canAffordCost(self.bank, cost)
+                  : false;
+                const color = TOWER_TYPE_COLORS[t.id] ?? "#9ab";
+                return `<button type="button" class="build-btn type-chip ${afford ? "" : "cant-afford"}" data-build-type="${t.id}" ${afford ? "" : "disabled"} style="--type-color:${color}">
+                  <span class="btn-label">${t.id} · p${t.power} r${t.range}</span>
+                  <span class="cost-row">${costChipsHtml(cost, afford)}</span>
+                </button>`;
+              })
+              .join("")}
+          </div>`
+        : `<div class="type-picker" id="type-picker" hidden></div>`;
 
     const buildList =
       m.phase === "combat"
         ? `<h2>BUILD TOWER</h2>
       <p class="hint" id="pad-hint">${
         selectedBuildCell === null
-          ? "Tap a pad to spin the map to it · tap again to build"
-          : affordTower
-            ? `Pad #${selectedBuildCell} selected — tap again to build`
-            : `Pad #${selectedBuildCell} selected — need resources to build`
+          ? "Tap a pad to focus · tap again to choose tower type"
+          : showTypePicker
+            ? `Pad #${selectedBuildCell} — pick a tower type`
+            : `Pad #${selectedBuildCell} selected — tap again for types`
       }</p>
-      <div class="cost-row pad-cost" id="pad-cost">${costChipsHtml(costs.towerBuild, affordTower)}</div>
+      ${typePickerHtml}
       <div class="pad-rail" id="pad-rail">
         ${
           pads.length === 0
@@ -727,7 +955,7 @@ function renderMatch(): void {
             : pads
                 .map(
                   (cellId) =>
-                    `<button type="button" class="pad-disc ${selectedBuildCell === cellId ? "selected" : ""} ${affordTower ? "" : "cant-afford"} ${selectedBuildCell === cellId && affordTower ? "ready-build" : ""}" data-build="${cellId}" title="Pad #${cellId}" aria-label="Pad ${cellId}">
+                    `<button type="button" class="pad-disc ${selectedBuildCell === cellId ? "selected" : ""} ${anyAfford ? "" : "cant-afford"} ${selectedBuildCell === cellId && showTypePicker ? "ready-build" : ""}" data-build="${cellId}" title="Pad #${cellId}" aria-label="Pad ${cellId}">
                       <span class="pad-disc-glow"></span>
                       <span class="pad-disc-id">${cellId}</span>
                     </button>`,
@@ -746,8 +974,9 @@ function renderMatch(): void {
                   const affordUp = self
                     ? canAffordCost(self.bank, upCost)
                     : false;
-                  return `<button class="secondary build-btn" data-up-tower="${t.id}" ${affordUp ? "" : "disabled"}>
-                      <span class="btn-label">Upgrade #${t.cellId} (L${(t.level ?? 0) + 1})</span>
+                  const color = TOWER_TYPE_COLORS[t.typeId ?? ""] ?? "#9ab";
+                  return `<button class="secondary build-btn" data-up-tower="${t.id}" ${affordUp ? "" : "disabled"} style="border-left:3px solid ${color}">
+                      <span class="btn-label">Upgrade ${t.typeId ?? "tower"} #${t.cellId} (L${(t.level ?? 0) + 1})</span>
                       <span class="cost-row">${costChipsHtml(upCost, affordUp)}</span>
                     </button>`;
                 })
@@ -808,7 +1037,7 @@ function renderMatch(): void {
       <h2>TARGETS</h2>
       <div class="row">${targets || "—"}</div>
       <h2>BODS</h2>
-      <div class="row">${bods || "—"}</div>
+      <div class="bod-stack">${bods || "—"}</div>
     </div>
     <div class="panel side-right">
       ${buildList}
@@ -877,19 +1106,14 @@ planet.onCellClick = (cellId) => {
     const placed = lastMatch.placed.find((p) => p.cellId === cellId);
     const hasTower = lastMatch.towers.some((t) => t.cellId === cellId);
     if (placed?.tile.hasTowerPoint && !hasTower) {
-      const self = me();
-      const costs = matchCosts(lastMatch);
       if (selectedBuildCell === cellId) {
-        if (!self || !canAffordCost(self.bank, costs.towerBuild)) {
-          lastError = "Need more resources for a tower";
-          paint();
-          return;
-        }
+        showTypePicker = true;
         lastError = "";
-        socket.send({ type: "buildTower", cellId });
+        paint();
         return;
       }
       selectedBuildCell = cellId;
+      showTypePicker = false;
       lastError = "";
       planet.focusCell(cellId);
       paint();
