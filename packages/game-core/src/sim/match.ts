@@ -699,33 +699,42 @@ export function tickMatch(state: MatchState): void {
     }
   }
 
-  // Move bods gradually (one cell every bodMoveEveryTicks)
+  // Move bods along edges over bodMoveEveryTicks (travel during cooldown, not wait-then-jump)
   for (const bod of [...state.bods]) {
-    let stepped = false;
-    if (bod.moveCooldown > 0) {
-      bod.moveCooldown--;
-    } else if (bod.pathIndex < bod.path.length - 1) {
-      bod.pathIndex++;
-      bod.cellId = bod.path[bod.pathIndex]!;
-      bod.moveCooldown = state.config.bodMoveEveryTicks;
-      stepped = true;
-    } else if (bod.cellId === baseCell(state, bod.targetPlayerId)) {
-      const target = state.players.find((p) => p.id === bod.targetPlayerId);
-      const owner = state.players.find((p) => p.id === bod.ownerId);
-      if (target && owner && target.teamId !== owner.teamId && target.alive) {
-        target.baseHp -= state.config.baseContactDamage;
-        if (target.baseHp <= 0) {
-          target.baseHp = 0;
-          target.alive = false;
+    if (bod.pathIndex >= bod.path.length - 1) {
+      // Linger on final cell, then strike once
+      if (bod.moveCooldown > 0) {
+        bod.moveCooldown--;
+        continue;
+      }
+      if (bod.cellId === baseCell(state, bod.targetPlayerId)) {
+        const target = state.players.find((p) => p.id === bod.targetPlayerId);
+        const owner = state.players.find((p) => p.id === bod.ownerId);
+        if (target && owner && target.teamId !== owner.teamId && target.alive) {
+          target.baseHp -= state.config.baseContactDamage;
+          if (target.baseHp <= 0) {
+            target.baseHp = 0;
+            target.alive = false;
+          }
         }
       }
       killBod(state, bod, null);
       continue;
     }
 
-    if (stepped) {
-      const mine = state.mines.find((m) => m.cellId === bod.cellId);
-      if (mine) addResources(bod.held, mineGenerated(state, mine), 1);
+    bod.moveCooldown--;
+    if (bod.moveCooldown > 0) continue;
+
+    bod.pathIndex++;
+    bod.cellId = bod.path[bod.pathIndex]!;
+    const mine = state.mines.find((m) => m.cellId === bod.cellId);
+    if (mine) addResources(bod.held, mineGenerated(state, mine), 1);
+
+    if (bod.pathIndex < bod.path.length - 1) {
+      bod.moveCooldown = state.config.bodMoveEveryTicks;
+    } else {
+      // brief pause on goal before damage
+      bod.moveCooldown = Math.max(3, Math.floor(state.config.bodMoveEveryTicks / 2));
     }
   }
 
@@ -848,6 +857,7 @@ export function serializeMatch(state: MatchState) {
     })),
     towers: state.towers,
     mines: state.mines,
+    bodMoveEveryTicks: state.config.bodMoveEveryTicks,
     bods: state.bods.map((b) => ({
       id: b.id,
       ownerId: b.ownerId,
@@ -855,6 +865,9 @@ export function serializeMatch(state: MatchState) {
       hp: b.hp,
       maxHp: b.maxHp,
       cellId: b.cellId,
+      path: b.path,
+      pathIndex: b.pathIndex,
+      moveCooldown: b.moveCooldown,
       held: b.held,
       targetPlayerId: b.targetPlayerId,
     })),

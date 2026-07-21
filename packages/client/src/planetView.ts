@@ -18,7 +18,15 @@ export interface PlanetViewData {
   }[];
   towers: { cellId: number; ownerId: string }[];
   mines: { cellId: number }[];
-  bods: { cellId: number; ownerId: string }[];
+  bods: {
+    id: string;
+    cellId: number;
+    ownerId: string;
+    path?: number[];
+    pathIndex?: number;
+    moveCooldown?: number;
+  }[];
+  bodMoveEveryTicks?: number;
   players: { id: string; baseCellId: number; teamId: string; alive: boolean }[];
   /** Cells where the current tile can be placed (any rotation) */
   legalCellIds?: number[];
@@ -36,6 +44,10 @@ export class PlanetView {
   private cellMeshes = new Map<number, THREE.Mesh>();
   private markers = new THREE.Group();
   private pathGroup = new THREE.Group();
+  private bodGroup = new THREE.Group();
+  private lastBodData: PlanetViewData | null = null;
+  private lastFrameMs = performance.now();
+  private localCooldownRemain = new Map<string, number>();
   private drag = false;
   private moved = false;
   private prevX = 0;
@@ -72,6 +84,7 @@ export class PlanetView {
     this.scene.add(this.root);
     this.scene.add(this.pathGroup);
     this.scene.add(this.markers);
+    this.scene.add(this.bodGroup);
     this.updateCamera();
 
     const el = this.renderer.domElement;
@@ -524,22 +537,7 @@ export class PlanetView {
       this.markers.add(mesh);
     }
 
-    for (const b of data.bods) {
-      const cell = cellMap.get(b.cellId);
-      if (!cell) continue;
-      const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(0.035, 8, 8),
-        new THREE.MeshStandardMaterial({
-          color: ownerColor.get(b.ownerId) ?? "#fff",
-          emissive: ownerColor.get(b.ownerId) ?? "#fff",
-          emissiveIntensity: 0.45,
-        }),
-      );
-      mesh.position
-        .set(cell.center.x, cell.center.y, cell.center.z)
-        .multiplyScalar(1.07);
-      this.markers.add(mesh);
-    }
+    this.syncBods(data);
 
     for (const p of data.players) {
       const cell = cellMap.get(p.baseCellId);
@@ -576,10 +574,111 @@ export class PlanetView {
     }
   }
 
+  /** Create/update bod meshes; positions lerped along path edges */
+  private syncBods(data: PlanetViewData): void {
+    this.lastBodData = data;
+    const cellMap = new Map(data.cells.map((c) => [c.id, c]));
+    const ownerColor = new Map<string, string>();
+    data.players.forEach((p, i) => {
+      ownerColor.set(p.id, TEAM_COLORS[i % TEAM_COLORS.length]!);
+    });
+    const period = Math.max(1, data.bodMoveEveryTicks ?? 10);
+    const seen = new Set<string>();
+
+    for (const b of data.bods) {
+      seen.add(b.id);
+      this.localCooldownRemain.set(b.id, b.moveCooldown ?? 0);
+      let mesh = this.bodGroup.children.find(
+        (c) => c.userData.bodId === b.id,
+      ) as THREE.Mesh | undefined;
+      if (!mesh) {
+        mesh = new THREE.Mesh(
+          new THREE.SphereGeometry(0.055, 10, 10),
+          new THREE.MeshStandardMaterial({
+            color: ownerColor.get(b.ownerId) ?? "#fff",
+            emissive: ownerColor.get(b.ownerId) ?? "#fff",
+            emissiveIntensity: 0.85,
+          }),
+        );
+        mesh.userData.bodId = b.id;
+        this.bodGroup.add(mesh);
+      }
+      this.placeBodMesh(mesh, b, cellMap, period, b.moveCooldown ?? 0);
+    }
+
+    for (const child of [...this.bodGroup.children]) {
+      const id = child.userData.bodId as string;
+      if (!seen.has(id)) {
+        this.bodGroup.remove(child);
+        this.localCooldownRemain.delete(id);
+        if (child instanceof THREE.Mesh) {
+          child.geometry.dispose();
+          (child.material as THREE.Material).dispose();
+        }
+      }
+    }
+  }
+
+  private placeBodMesh(
+    mesh: THREE.Mesh,
+    b: PlanetViewData["bods"][number],
+    cellMap: Map<number, CellView>,
+    period: number,
+    cooldown: number,
+  ): void {
+    const path = b.path ?? [b.cellId];
+    const idx = b.pathIndex ?? 0;
+    const fromId = path[idx] ?? b.cellId;
+    const toId = path[idx + 1] ?? fromId;
+    const from = cellMap.get(fromId);
+    const to = cellMap.get(toId);
+    if (!from) return;
+
+    const traveling = idx < path.length - 1;
+    const t = traveling ? 1 - Math.max(0, Math.min(1, cooldown / period)) : 1;
+    const ax = from.center.x;
+    const ay = from.center.y;
+    const az = from.center.z;
+    const bx = to?.center.x ?? ax;
+    const by = to?.center.y ?? ay;
+    const bz = to?.center.z ?? az;
+    const x = ax + (bx - ax) * t;
+    const y = ay + (by - ay) * t;
+    const z = az + (bz - az) * t;
+    const len = Math.hypot(x, y, z) || 1;
+    const s = 1.08;
+    mesh.position.set((x / len) * s, (y / len) * s, (z / len) * s);
+  }
+
   render(): void {
+    const now = performance.now();
+    const dt = Math.min(0.05, (now - this.lastFrameMs) / 1000);
+    this.lastFrameMs = now;
+
+    // Smooth bod travel between server snapshots (~10Hz)
+    if (this.lastBodData) {
+      const period = Math.max(1, this.lastBodData.bodMoveEveryTicks ?? 10);
+      const tickHz = 10;
+      const cellMap = new Map(this.lastBodData.cells.map((c) => [c.id, c]));
+      for (const b of this.lastBodData.bods) {
+        const mesh = this.bodGroup.children.find(
+          (c) => c.userData.bodId === b.id,
+        ) as THREE.Mesh | undefined;
+        if (!mesh) continue;
+        let remain = this.localCooldownRemain.get(b.id);
+        if (remain === undefined) remain = b.moveCooldown ?? 0;
+        if ((b.pathIndex ?? 0) < (b.path?.length ?? 1) - 1) {
+          remain = Math.max(0, remain - dt * tickHz);
+          this.localCooldownRemain.set(b.id, remain);
+        }
+        this.placeBodMesh(mesh, b, cellMap, period, remain);
+      }
+    }
+
     if (this.spin) this.root.rotation.y += 0.0005;
     this.pathGroup.rotation.y = this.root.rotation.y;
     this.markers.rotation.y = this.root.rotation.y;
+    this.bodGroup.rotation.y = this.root.rotation.y;
     this.renderer.render(this.scene, this.camera);
   }
 }

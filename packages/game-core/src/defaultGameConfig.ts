@@ -19,7 +19,7 @@ export const defaultGameConfig: GameConfig = {
   mineChance: 0.2,
   baseContactDamage: 8,
   tickRateHz: 10,
-  bodMoveEveryTicks: 14,
+  bodMoveEveryTicks: 10,
   timedMatchSeconds: 300,
   towers: {
     basic: {

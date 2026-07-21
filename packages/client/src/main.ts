@@ -55,10 +55,18 @@ interface MatchState {
   }[];
   towers: { id: string; cellId: number; ownerId: string; friendlyFire: boolean }[];
   mines: { cellId: number; id?: string; ownerId?: string }[];
-  bods: { cellId: number; ownerId: string }[];
+  bods: {
+    id: string;
+    cellId: number;
+    ownerId: string;
+    path?: number[];
+    pathIndex?: number;
+    moveCooldown?: number;
+  }[];
+  bodMoveEveryTicks?: number;
 }
 
-const CLIENT_BUILD = "v0.1.6";
+const CLIENT_BUILD = "v0.1.7";
 const TOWER_COST = { stone: 25, power: 10 };
 
 const app = document.getElementById("app")!;
@@ -561,6 +569,7 @@ function renderMatch(): void {
     towers: m.towers,
     mines: m.mines,
     bods: m.bods,
+    bodMoveEveryTicks: m.bodMoveEveryTicks ?? 10,
     players: m.players,
     legalCellIds: myTurn ? legalCellIds : [],
     myBaseCellId: self?.baseCellId ?? null,
