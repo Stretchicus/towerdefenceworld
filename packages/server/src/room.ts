@@ -13,6 +13,7 @@ import {
   runAiPlacement,
   serializeMatch,
   tickMatch,
+  normalizeTowerForResources,
   validateLoadout,
   type LobbySettings,
   type MatchState,
@@ -175,17 +176,17 @@ export function handleMessage(
     if (raw.type === "create") {
       const roomCode = code();
       const playerId = `p-${token().slice(0, 8)}`;
+      const settings = { ...defaultSettings(), ...raw.settings };
+      settings.seatCount = Math.max(2, Math.min(4, settings.seatCount ?? 2));
       const seat: Seat = {
         id: playerId,
         name: raw.name ?? "Commander",
         isAi: false,
         ready: false,
         token: token(),
-        loadout: defaultTowerLoadout(),
+        loadout: defaultTowerLoadout(settings.resourceCount),
         send,
       };
-      const settings = { ...defaultSettings(), ...raw.settings };
-      settings.seatCount = Math.max(2, Math.min(4, settings.seatCount ?? 2));
       const room: Room = {
         code: roomCode,
         hostId: playerId,
@@ -242,7 +243,7 @@ export function handleMessage(
         seat.isAi = false;
         seat.ready = false;
         seat.token = token();
-        seat.loadout = defaultTowerLoadout();
+        seat.loadout = defaultTowerLoadout(room.settings.resourceCount);
         seat.send = send;
       } else {
         if (room.seats.length >= room.settings.seatCount) {
@@ -256,7 +257,7 @@ export function handleMessage(
           isAi: false,
           ready: false,
           token: token(),
-          loadout: defaultTowerLoadout(),
+          loadout: defaultTowerLoadout(room.settings.resourceCount),
           send,
         };
         room.seats.push(seat);
@@ -290,6 +291,7 @@ export function handleMessage(
           send({ type: "error", message: "Host only" });
           break;
         }
+        const prevResourceCount = room.settings.resourceCount;
         room.settings = { ...room.settings, ...raw.settings };
         room.settings.seatCount = Math.max(
           2,
@@ -301,6 +303,18 @@ export function handleMessage(
         while (room.seats.length > room.settings.seatCount) {
           const removed = room.seats.pop();
           removed?.send?.({ type: "error", message: "Seat removed" });
+        }
+        const rc = room.settings.resourceCount;
+        if (rc !== prevResourceCount) {
+          for (const s of room.seats) {
+            if (s.isAi) continue;
+            const normalized = s.loadout.map((t) =>
+              normalizeTowerForResources(t, rc),
+            );
+            const checked = validateLoadout(normalized, rc);
+            s.loadout = checked.ok ? checked.towers : normalized;
+            if (!checked.ok) s.ready = false;
+          }
         }
         broadcastState(room);
         break;
@@ -317,7 +331,7 @@ export function handleMessage(
             isAi: true,
             ready: true,
             token: token(),
-            loadout: defaultTowerLoadout(),
+            loadout: defaultTowerLoadout(room.settings.resourceCount),
           });
         }
         broadcastState(room);
@@ -332,7 +346,11 @@ export function handleMessage(
           send({ type: "error", message: "AI loadout is fixed" });
           break;
         }
-        const checked = validateLoadout(raw.towers);
+        const rc = room.settings.resourceCount;
+        const normalized = raw.towers.map((t) =>
+          normalizeTowerForResources(t, rc),
+        );
+        const checked = validateLoadout(normalized, rc);
         if (!checked.ok) {
           send({
             type: "error",
@@ -340,13 +358,14 @@ export function handleMessage(
           });
           break;
         }
-        seat.loadout = structuredClone(raw.towers);
+        seat.loadout = structuredClone(checked.towers);
         seat.ready = false;
         broadcastState(room);
         break;
       }
       case "ready": {
-        const checked = validateLoadout(seat.loadout);
+        const rc = room.settings.resourceCount;
+        const checked = validateLoadout(seat.loadout, rc);
         if (!checked.ok) {
           send({
             type: "error",
@@ -354,6 +373,7 @@ export function handleMessage(
           });
           break;
         }
+        seat.loadout = checked.towers;
         seat.ready = true;
         broadcastState(room);
         break;
@@ -373,6 +393,7 @@ export function handleMessage(
             room.settings.mode = "ffa";
           }
         }
+        const rc = room.settings.resourceCount;
         while (room.seats.length < room.settings.seatCount) {
           room.seats.push({
             id: `ai-${token().slice(0, 6)}`,
@@ -380,15 +401,15 @@ export function handleMessage(
             isAi: true,
             ready: true,
             token: token(),
-            loadout: defaultTowerLoadout(),
+            loadout: defaultTowerLoadout(rc),
           });
         }
         for (const s of room.seats) {
           if (s.isAi) {
-            s.loadout = defaultTowerLoadout();
+            s.loadout = defaultTowerLoadout(rc);
             continue;
           }
-          const checked = validateLoadout(s.loadout);
+          const checked = validateLoadout(s.loadout, rc);
           if (!checked.ok) {
             send({
               type: "error",
@@ -396,6 +417,7 @@ export function handleMessage(
             });
             return ctx;
           }
+          s.loadout = checked.towers;
         }
         room.match = createMatch({
           id: room.code,
@@ -405,7 +427,7 @@ export function handleMessage(
             id: s.id,
             name: s.name,
             isAi: s.isAi,
-            loadout: s.isAi ? defaultTowerLoadout() : s.loadout,
+            loadout: s.loadout,
           })),
         });
         startTicks(room);
