@@ -53,7 +53,7 @@ interface MatchState {
 
 const TOWER_COST = { stone: 25, power: 10 };
 /** Bump when shipping client UX so deploy can be verified in the header */
-const CLIENT_BUILD = "v0.1.3";
+const CLIENT_BUILD = "v0.1.4";
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
@@ -209,7 +209,6 @@ function renderLobby(): void {
           </label>
         </div>
         <div class="row">
-          <button id="btn-apply" class="secondary">Apply settings</button>
           <button id="btn-ai" class="secondary">Fill AI</button>
           <button id="btn-ready">Ready</button>
           <button id="btn-start">Start</button>
@@ -242,49 +241,38 @@ function renderLobby(): void {
     return;
   }
 
-  document.getElementById("btn-apply")?.addEventListener("click", () => {
-    socket.send({
-      type: "setLobby",
-      settings: {
-        mode: (document.getElementById("mode") as HTMLSelectElement).value,
-        winRule: (document.getElementById("win") as HTMLSelectElement).value,
-        worldSize: (document.getElementById("world") as HTMLSelectElement).value,
-        placementMode: (document.getElementById("place") as HTMLSelectElement)
-          .value,
-        seatCount: Number(
-          (document.getElementById("seats") as HTMLSelectElement).value,
-        ),
-        resourceCount: Number(
-          (document.getElementById("res") as HTMLSelectElement).value,
-        ),
-      },
-    });
+  const readLobbySettings = () => ({
+    mode: (document.getElementById("mode") as HTMLSelectElement).value,
+    winRule: (document.getElementById("win") as HTMLSelectElement).value,
+    worldSize: (document.getElementById("world") as HTMLSelectElement).value,
+    placementMode: (document.getElementById("place") as HTMLSelectElement).value,
+    seatCount: Number(
+      (document.getElementById("seats") as HTMLSelectElement).value,
+    ),
+    resourceCount: Number(
+      (document.getElementById("res") as HTMLSelectElement).value,
+    ),
   });
+
+  // Keep server in sync when host changes dropdowns (no Apply button)
+  for (const id of ["mode", "win", "world", "place", "seats", "res"]) {
+    document.getElementById(id)?.addEventListener("change", () => {
+      if (s.hostId !== playerId) return;
+      socket.send({ type: "setLobby", settings: readLobbySettings() });
+    });
+  }
+
   document.getElementById("btn-ai")?.addEventListener("click", () => {
+    if (s.hostId === playerId) {
+      socket.send({ type: "setLobby", settings: readLobbySettings() });
+    }
     socket.send({ type: "fillAi" });
   });
   document.getElementById("btn-ready")?.addEventListener("click", () => {
     socket.send({ type: "ready" });
   });
   document.getElementById("btn-start")?.addEventListener("click", () => {
-    // Apply lobby form before start — dropdown alone does not update the server
-    socket.send({
-      type: "setLobby",
-      settings: {
-        mode: (document.getElementById("mode") as HTMLSelectElement).value,
-        winRule: (document.getElementById("win") as HTMLSelectElement).value,
-        worldSize: (document.getElementById("world") as HTMLSelectElement).value,
-        placementMode: (document.getElementById("place") as HTMLSelectElement)
-          .value,
-        seatCount: Number(
-          (document.getElementById("seats") as HTMLSelectElement).value,
-        ),
-        resourceCount: Number(
-          (document.getElementById("res") as HTMLSelectElement).value,
-        ),
-      },
-    });
-    socket.send({ type: "start" });
+    socket.send({ type: "start", settings: readLobbySettings() });
   });
 }
 

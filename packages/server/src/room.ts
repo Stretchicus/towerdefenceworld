@@ -22,7 +22,7 @@ export type ClientMessage =
   | { type: "create"; name?: string; settings?: Partial<LobbySettings> }
   | { type: "join"; room: string; name?: string; token?: string }
   | { type: "ready" }
-  | { type: "start" }
+  | { type: "start"; settings?: Partial<LobbySettings> }
   | { type: "setLobby"; settings: Partial<LobbySettings> }
   | { type: "fillAi" }
   | {
@@ -321,6 +321,16 @@ export function handleMessage(
         if (playerId !== room.hostId) {
           send({ type: "error", message: "Host only" });
           break;
+        }
+        if (raw.settings) {
+          room.settings = { ...room.settings, ...raw.settings };
+          room.settings.seatCount = Math.max(
+            2,
+            Math.min(4, room.settings.seatCount),
+          );
+          if (room.settings.mode === "teams" && room.settings.seatCount === 3) {
+            room.settings.mode = "ffa";
+          }
         }
         while (room.seats.length < room.settings.seatCount) {
           room.seats.push({
