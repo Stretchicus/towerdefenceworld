@@ -1,0 +1,24 @@
+{
+  "name": "towerdefenceworld",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Spherical hex tower-defence — shared routes, online rooms",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build -w @tdw/game-core && npm run build -w @tdw/server && npm run build -w @tdw/client",
+    "test": "npm run test -w @tdw/game-core",
+    "dev": "npm run build -w @tdw/game-core && concurrently -k \"npm run dev -w @tdw/server\" \"npm run dev -w @tdw/client\"",
+    "dev:server": "npm run build -w @tdw/game-core && npm run dev -w @tdw/server",
+    "dev:client": "npm run dev -w @tdw/client",
+    "start": "npm run start -w @tdw/server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "typescript": "^5.8.2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

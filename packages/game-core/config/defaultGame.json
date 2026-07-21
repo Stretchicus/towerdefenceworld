@@ -1,0 +1,90 @@
+{
+  "resources": [
+    "stone",
+    "water",
+    "power",
+    "iron",
+    "steel",
+    "aluminium",
+    "glass",
+    "electronics",
+    "bio-mass"
+  ],
+  "resourceCountDefault": 3,
+  "startingBank": {
+    "stone": 80,
+    "water": 80,
+    "power": 80
+  },
+  "towerPointChance": 0.35,
+  "mineChance": 0.2,
+  "baseContactDamage": 8,
+  "tickRateHz": 10,
+  "timedMatchSeconds": 300,
+  "towers": {
+    "basic": {
+      "id": "basic",
+      "power": 12,
+      "range": 2,
+      "aoeSize": 0,
+      "aoeFade": 0,
+      "jump": 0,
+      "jumpLoss": 0,
+      "slowPower": 0,
+      "shotGivesPercent": 0,
+      "shootCost": {},
+      "buildCost": { "stone": 25, "power": 10 },
+      "upgradeCost": { "stone": 20, "power": 15 },
+      "upgradeStatIncrease": { "power": 0.15, "range": 0.1 },
+      "upgradeLevelIncrease": 1.35,
+      "friendlyFireDefault": false
+    }
+  },
+  "mines": {
+    "basic": {
+      "id": "basic",
+      "generated": { "stone": 2, "water": 1 },
+      "upgradeCost": { "stone": 15 },
+      "upgradeLevelIncrease": 1.3,
+      "upgradeGeneratedIncrease": { "stone": 0.2, "water": 0.2 }
+    }
+  },
+  "bods": {
+    "grunt": {
+      "id": "grunt",
+      "hp": 40,
+      "resistance": 0.05,
+      "resourcesToBuild": { "stone": 8, "water": 4 },
+      "resourcePercOnDeath": 0.6,
+      "buildTimeTicks": 15,
+      "upgradeCost": { "stone": 12, "water": 8 },
+      "upgradeLevelIncrease": 1.3,
+      "upgradeStatIncrease": { "hp": 0.2, "resistance": 0.05 },
+      "enabledByDefault": true
+    },
+    "bruiser": {
+      "id": "bruiser",
+      "hp": 90,
+      "resistance": 0.15,
+      "resourcesToBuild": { "stone": 20, "power": 10 },
+      "resourcePercOnDeath": 0.5,
+      "buildTimeTicks": 30,
+      "upgradeCost": { "stone": 25, "power": 15 },
+      "upgradeLevelIncrease": 1.35,
+      "upgradeStatIncrease": { "hp": 0.25 },
+      "enabledByDefault": false
+    }
+  },
+  "base": {
+    "hp": 500,
+    "resourceGenPerTick": { "stone": 0.4, "water": 0.3, "power": 0.2 },
+    "upgradeCost": { "stone": 40, "power": 30 },
+    "upgradeLevelIncrease": 1.4,
+    "upgradeStatIncrease": { "hp": 0.15 }
+  },
+  "tileBagSize": {
+    "small": 24,
+    "medium": 40,
+    "large": 64
+  }
+}
