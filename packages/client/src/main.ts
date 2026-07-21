@@ -100,7 +100,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.23";
+const CLIENT_BUILD = "v0.1.24";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -451,6 +451,9 @@ function renderLobby(): void {
       : "";
   const loadoutOk = workshop ? isWorkshopValid(workshop) : true;
 
+  const prevLobby = hud.querySelector(".lobby") as HTMLElement | null;
+  const lobbyScroll = prevLobby?.scrollTop ?? 0;
+
   hud.innerHTML = `
     <div class="panel lobby">
       <h2>COMMAND LOBBY</h2>
@@ -538,6 +541,11 @@ function renderLobby(): void {
     </div>
   `;
 
+  const nextLobby = hud.querySelector(".lobby") as HTMLElement | null;
+  if (nextLobby && lobbyScroll > 0) {
+    nextLobby.scrollTop = lobbyScroll;
+  }
+
   if (!s) {
     document.getElementById("btn-create")?.addEventListener("click", () => {
       const name = (document.getElementById("name") as HTMLInputElement).value;
@@ -555,9 +563,9 @@ function renderLobby(): void {
 
   const wsRoot = document.getElementById("tower-workshop");
   if (wsRoot && workshop) {
-    bindWorkshop(wsRoot, workshop, () => {
+    bindWorkshop(wsRoot, workshop, (kind = "hard") => {
       schedulePushLoadout();
-      paint();
+      if (kind === "hard") paint();
     });
   }
 

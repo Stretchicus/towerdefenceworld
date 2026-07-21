@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.24 — 2026-07-21
+
+### Fixed
+
+- Workshop sliders no longer jump the lobby scroll back to the top
+
 ## 0.1.23 — 2026-07-21
 
 ### Changed

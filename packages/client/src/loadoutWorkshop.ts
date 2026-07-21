@@ -361,7 +361,7 @@ export function workshopHtml(state: WorkshopState): string {
 export function bindWorkshop(
   root: HTMLElement,
   state: WorkshopState,
-  onChange: () => void,
+  onChange: (kind?: "soft" | "hard") => void,
 ): void {
   const applySlider = (field: SliderField, raw: string) => {
     const t = state.towers[state.selectedIndex];
@@ -419,14 +419,14 @@ export function bindWorkshop(
   root.querySelectorAll("[data-ws-select]").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.selectedIndex = Number((btn as HTMLElement).dataset.wsSelect);
-      onChange();
+      onChange("hard");
     });
   });
   root.querySelectorAll("[data-ws-tab]").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.tab = (btn as HTMLElement).dataset.wsTab as WorkshopTab;
       if (state.tab === "advanced") syncWorkshopJson(state);
-      onChange();
+      onChange("hard");
     });
   });
   root.querySelector("[data-ws-add]")?.addEventListener("click", () => {
@@ -434,20 +434,20 @@ export function bindWorkshop(
     state.towers.push(blankTower(id));
     state.selectedIndex = state.towers.length - 1;
     syncWorkshopJson(state);
-    onChange();
+    onChange("hard");
   });
   root.querySelector("[data-ws-remove]")?.addEventListener("click", () => {
     if (state.towers.length <= 1) return;
     state.towers.splice(state.selectedIndex, 1);
     state.selectedIndex = Math.max(0, state.selectedIndex - 1);
     syncWorkshopJson(state);
-    onChange();
+    onChange("hard");
   });
   root.querySelector("[data-ws-defaults]")?.addEventListener("click", () => {
     state.towers = defaultTowerLoadout();
     state.selectedIndex = 0;
     syncWorkshopJson(state);
-    onChange();
+    onChange("hard");
   });
   root.querySelector("[data-ws-download]")?.addEventListener("click", () => {
     const blob = new Blob(
@@ -468,16 +468,16 @@ export function bindWorkshop(
         const parsed = parseLoadoutFile(JSON.parse(text));
         if (!parsed.ok || !parsed.towers) {
           state.errors = parsed.ok ? ["import failed"] : parsed.errors;
-          onChange();
+          onChange("hard");
           return;
         }
         state.towers = structuredClone(parsed.towers);
         state.selectedIndex = 0;
         syncWorkshopJson(state);
-        onChange();
+        onChange("hard");
       } catch {
         state.errors = ["invalid JSON file"];
-        onChange();
+        onChange("hard");
       }
     });
   });
@@ -489,11 +489,12 @@ export function bindWorkshop(
       input.addEventListener("input", () => {
         applySlider(sliderField, input.value);
         refreshAfterSlider();
+        onChange("soft");
       });
       input.addEventListener("change", () => {
         applySlider(sliderField, input.value);
         refreshAfterSlider();
-        onChange();
+        onChange("soft");
       });
     } else {
       input.addEventListener("change", () => {
@@ -501,7 +502,7 @@ export function bindWorkshop(
         if (!t) return;
         t.id = input.value.trim() || t.id;
         syncWorkshopJson(state);
-        onChange();
+        onChange("hard");
       });
     }
   });
@@ -519,23 +520,23 @@ export function bindWorkshop(
     } catch {
       state.errors = ["invalid JSON"];
     }
-    onChange();
+    onChange("hard");
   });
   root.querySelector("[data-ws-apply-json]")?.addEventListener("click", () => {
     try {
       const parsed = parseLoadoutFile(JSON.parse(state.jsonText));
       if (!parsed.ok || !parsed.towers) {
         state.errors = parsed.ok ? ["apply failed"] : parsed.errors;
-        onChange();
+        onChange("hard");
         return;
       }
       state.towers = structuredClone(parsed.towers);
       state.selectedIndex = 0;
       syncWorkshopJson(state);
-      onChange();
+      onChange("hard");
     } catch {
       state.errors = ["invalid JSON"];
-      onChange();
+      onChange("hard");
     }
   });
 }
