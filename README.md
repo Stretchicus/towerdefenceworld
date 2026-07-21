@@ -19,7 +19,7 @@ npm run dev
 ```
 
 - Client: http://localhost:5173  
-- Server / WS: http://localhost:3001 (proxied from Vite in dev)
+- Server / WS: http://localhost:3101 (proxied from Vite in dev)
 
 Create a room from the lobby, share the room code, or fill seats with AI.
 

@@ -5,10 +5,10 @@ export default defineConfig({
     port: 5173,
     proxy: {
       "/ws": {
-        target: "ws://localhost:3001",
+        target: "ws://localhost:3101",
         ws: true,
       },
-      "/health": "http://localhost:3001",
+      "/health": "http://localhost:3101",
     },
   },
   build: {

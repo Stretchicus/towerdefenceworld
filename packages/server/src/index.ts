@@ -7,7 +7,7 @@ import {
   type ServerMessage,
 } from "./room.js";
 
-const PORT = Number(process.env.PORT ?? 3001);
+const PORT = Number(process.env.PORT ?? 3101);
 const HOST = process.env.HOST ?? "0.0.0.0";
 
 const server = http.createServer((req, res) => {

@@ -2,7 +2,7 @@
 
 ## Architecture
 
-- **Node** (`@tdw/server`) listens on `127.0.0.1:3001` — HTTP health + WebSocket `/ws`
+- **Node** (`@tdw/server`) listens on `127.0.0.1:3101` — HTTP health + WebSocket `/ws`
 - **Vite build** of `@tdw/client` is static files (e.g. `/var/www/tdw/`)
 - **Apache** serves static files and reverse-proxies `/ws` to Node
 
@@ -51,7 +51,7 @@ After=network.target
 [Service]
 Type=simple
 WorkingDirectory=/path/to/towerdefenceworld/packages/server
-Environment=PORT=3001
+Environment=PORT=3101
 Environment=HOST=127.0.0.1
 ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
@@ -81,11 +81,11 @@ Enable modules: `proxy`, `proxy_http`, `proxy_wstunnel`, `headers`.
   </Directory>
 
   ProxyPreserveHost On
-  ProxyPass /health http://127.0.0.1:3001/health
-  ProxyPassReverse /health http://127.0.0.1:3001/health
+  ProxyPass /health http://127.0.0.1:3101/health
+  ProxyPassReverse /health http://127.0.0.1:3101/health
 
-  ProxyPass /ws ws://127.0.0.1:3001/ws
-  ProxyPassReverse /ws ws://127.0.0.1:3001/ws
+  ProxyPass /ws ws://127.0.0.1:3101/ws
+  ProxyPassReverse /ws ws://127.0.0.1:3101/ws
 </VirtualHost>
 ```
 
