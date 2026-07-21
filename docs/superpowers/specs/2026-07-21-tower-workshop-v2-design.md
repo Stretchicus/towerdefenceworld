@@ -1,7 +1,7 @@
 # Tower workshop v2 — derived costs, fire rate, resource-gated sliders
 
 Date: 2026-07-21  
-Status: approved  
+Status: implemented  
 Supersedes (workshop economy section of): `2026-07-21-tower-loadouts-workshop-design.md`  
 Approach: full workshop v2 in one pass
 

@@ -2,6 +2,7 @@
 
 Date: 2026-07-21  
 Status: implemented  
+Note: Workshop economy (raw resource sliders) superseded by `2026-07-21-tower-workshop-v2-design.md`.  
 Approach: #2 — per-player loadout + point-budget workshop
 
 ## Goals
