@@ -4,8 +4,8 @@ import type { GameConfig } from "./types.js";
 export const defaultGameConfig: GameConfig = {
   resources: [
     "stone",
-    "water",
     "power",
+    "water",
     "iron",
     "steel",
     "aluminium",

@@ -326,6 +326,7 @@ describe("match combat", () => {
       const v = validateLoadout(loadout, n);
       assert.equal(v.ok, true, v.ok ? "" : v.errors.join("; "));
       for (const t of loadout) {
+        assert.equal(t.fireRate, 6, `${t.id} fireRate for ${n} resources`);
         assert.ok(
           scoreTowerPoints(t, n) <= TOWER_POINT_POOL,
           `${t.id} score ${scoreTowerPoints(t, n)}`,
@@ -492,6 +493,43 @@ describe("match combat", () => {
     assert.equal(match.players[0]!.bank.stone, 0);
     const snap = serializeMatch(match);
     assert.ok(snap.players[0]!.loadout.some((t) => t.id === "sniper"));
+  });
+
+  it("two-resource matches charge tower builds in stone and power", () => {
+    const match = createMatch({
+      id: "two-resource-power-build",
+      seed: 4,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 2,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+      ],
+    });
+    assert.deepEqual(match.resources, ["stone", "power"]);
+    const pad = [...match.placement.placed.values()].find(
+      (p) => p.tile.hasTowerPoint,
+    );
+    assert.ok(pad, "need a tower pad");
+    const basic = match.players[0]!.loadout.find((t) => t.id === "basic");
+    assert.ok(basic);
+    match.players[0]!.bank = {
+      stone: basic!.buildCost.stone ?? 0,
+      power: basic!.buildCost.power ?? 0,
+      water: 99,
+    };
+
+    const result = intentBuildTower(match, "p1", pad!.cellId, "basic");
+    assert.equal(result.ok, true, result.error);
+    assert.equal(match.players[0]!.bank.stone, 0);
+    assert.equal(match.players[0]!.bank.power, 0);
+    assert.equal(match.players[0]!.bank.water, 99);
   });
 
   it("manual placement waits on human; AI does not dump the bag", () => {

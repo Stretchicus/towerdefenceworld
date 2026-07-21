@@ -199,19 +199,17 @@ function baseTower(
 /** Default trio — each spends ≤ 100 points for the given resource mode. */
 export function defaultTowerLoadout(resourceCount: number): TowerDef[] {
   const roles = [
-    baseTower({ id: "basic", power: 12, range: 2, fireRate: 1 }),
+    baseTower({ id: "basic", power: 4, range: 2 }),
     baseTower({
       id: "sniper",
-      power: 6,
-      range: 4,
-      fireRate: 1,
+      power: 1,
+      range: 3,
       upgradeStatIncrease: { power: 0.12, range: 0.08 },
     }),
     baseTower({
       id: "mortar",
-      power: 15,
+      power: 7,
       range: 1,
-      fireRate: 1,
       upgradeStatIncrease: { power: 0.2, range: 0.05 },
     }),
   ];
@@ -220,7 +218,7 @@ export function defaultTowerLoadout(resourceCount: number): TowerDef[] {
 
 export function blankTower(id: string, resourceCount = 3): TowerDef {
   return normalizeTowerForResources(
-    baseTower({ id, power: 8, range: 2, fireRate: 4 }),
+    baseTower({ id, power: 4, range: 1, fireRate: 4 }),
     resourceCount,
   );
 }

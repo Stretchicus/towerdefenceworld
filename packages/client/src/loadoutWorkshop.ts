@@ -412,7 +412,12 @@ export function bindWorkshop(
   });
   root.querySelector("[data-ws-add]")?.addEventListener("click", () => {
     const id = `tower-${state.towers.length + 1}`;
-    state.towers.push(blankTower(id, state.resourceCount));
+    const tower = normalizeTowerForResources(
+      blankTower(id, state.resourceCount),
+      state.resourceCount,
+    );
+    rebalanceTowerToPool(tower, "power", state.resourceCount);
+    state.towers.push(normalizeTowerForResources(tower, state.resourceCount));
     state.selectedIndex = state.towers.length - 1;
     syncWorkshopJson(state);
     onChange("hard");
