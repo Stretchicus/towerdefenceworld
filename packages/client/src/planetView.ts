@@ -115,12 +115,13 @@ export class PlanetView {
       this.prevX = e.clientX;
       this.prevY = e.clientY;
       const sens = 0.005;
+      // Grab metaphor: finger drag moves the surface with you (invert Y)
       this.velTheta = -dx * sens * 60;
-      this.velPhi = dy * sens * 60;
+      this.velPhi = -dy * sens * 60;
       this.spherical.theta -= dx * sens;
       this.spherical.phi = Math.min(
         Math.PI - 0.1,
-        Math.max(0.1, this.spherical.phi + dy * sens),
+        Math.max(0.1, this.spherical.phi - dy * sens),
       );
       this.updateCamera();
     });
