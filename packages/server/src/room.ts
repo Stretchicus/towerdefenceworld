@@ -35,13 +35,15 @@ export type ClientMessage =
   | { type: "upgrade"; target: UpgradeTarget }
   | { type: "toggleBod"; bodTypeId: string; enabled: boolean }
   | { type: "toggleTarget"; targetId: string; enabled: boolean }
-  | { type: "toggleFriendlyFire"; towerId: string; enabled: boolean };
+  | { type: "toggleFriendlyFire"; towerId: string; enabled: boolean }
+  | { type: "leave" };
 
 export type ServerMessage =
   | { type: "room"; room: string; token: string; playerId: string }
   | { type: "state"; state: MatchSnapshot | LobbySnapshot }
   | { type: "error"; message: string }
-  | { type: "ended"; winnerIds: string[] };
+  | { type: "ended"; winnerIds: string[] }
+  | { type: "left" };
 
 export interface LobbySnapshot {
   phase: "lobby";
@@ -403,6 +405,28 @@ export function handleMessage(
         );
         broadcastState(room);
         break;
+      }
+      case "leave": {
+        seat.send = undefined;
+        if (room.match) {
+          seat.isAi = true;
+          seat.name = `${seat.name} (AI)`;
+          const mp = room.match.players.find((p) => p.id === playerId);
+          if (mp) mp.isAi = true;
+        } else {
+          room.seats = room.seats.filter((s) => s.id !== playerId);
+          if (room.hostId === playerId && room.seats[0]) {
+            room.hostId = room.seats[0].id;
+          }
+          if (room.seats.length === 0) {
+            stopTicks(room);
+            rooms.delete(room.code);
+          } else {
+            broadcastState(room);
+          }
+        }
+        send({ type: "left" });
+        return {};
       }
       default:
         send({ type: "error", message: "Unknown message" });

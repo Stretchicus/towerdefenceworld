@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.1 — 2026-07-21
+
+### Changed
+
+- Routes drawn as bright gold tubes; route cells highlighted
+- Empty tower pads shown as cyan rings + HUD build list / upgrade buttons
+- Leave button exits room (seat becomes AI mid-match)
+- AI builds slower and only near its own base
+
+### Testing
+
+- `npm test`; client/server build
+
 ## 0.1.0 — 2026-07-21
 
 ### Added

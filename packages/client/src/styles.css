@@ -49,6 +49,79 @@ header.top {
   z-index: 2;
 }
 
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.leave-btn {
+  border-color: var(--danger) !important;
+  color: var(--danger) !important;
+}
+
+.hint {
+  font-size: 0.78rem;
+  color: var(--muted);
+  margin: 0.25rem 0 0.5rem;
+  line-height: 1.35;
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  margin-bottom: 0.5rem;
+}
+
+.legend .swatch {
+  display: inline-block;
+  width: 0.7rem;
+  height: 0.7rem;
+  border-radius: 2px;
+  margin-right: 0.25rem;
+  vertical-align: -1px;
+}
+
+.swatch.route {
+  background: #e8c45a;
+  box-shadow: 0 0 6px #e8c45a;
+}
+
+.swatch.base {
+  background: #ff7a3d;
+}
+
+.swatch.pad {
+  background: #3dd6c6;
+  border-radius: 50%;
+  box-shadow: 0 0 6px #3dd6c6;
+}
+
+.build-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.build-btn {
+  text-align: left;
+  font-size: 0.8rem;
+}
+
+.build-btn.selected {
+  outline: 1px solid var(--accent);
+}
+
+.build-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 header.top h1 {
   margin: 0;
   font-family: Orbitron, sans-serif;

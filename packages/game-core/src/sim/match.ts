@@ -733,17 +733,24 @@ export function runAiPlacement(state: MatchState): void {
 
 export function runAiCombat(state: MatchState): void {
   if (state.phase !== "combat") return;
+  // Throttle: act every 25 ticks so humans can claim pads
+  if (state.tick % 25 !== 0) return;
   for (const p of state.players) {
     if (!p.isAi || !p.alive) continue;
-    // Build cheapest tower on first free tower point
+    const home = baseCell(state, p.id);
+    let built = false;
     for (const [cellId, placed] of state.placement.placed) {
       if (!placed.tile.hasTowerPoint) continue;
       if (state.towers.some((t) => t.cellId === cellId)) continue;
+      const dist = pathLength(state.routeGraph, home, cellId);
+      if (dist > 4) continue;
       const r = intentBuildTower(state, p.id, cellId, "basic");
-      if (r.ok) break;
+      if (r.ok) {
+        built = true;
+        break;
+      }
     }
-    // Upgrade base if rich
-    if ((p.bank.stone ?? 0) > 100) {
+    if (!built && (p.bank.stone ?? 0) > 100) {
       intentUpgrade(state, p.id, { kind: "base", playerId: p.id });
     }
   }

@@ -5,6 +5,7 @@ export interface CellView {
   sides: number;
   center: { x: number; y: number; z: number };
   vertices: { x: number; y: number; z: number }[];
+  neighbors: number[];
 }
 
 export interface PlanetViewData {
@@ -30,11 +31,14 @@ export class PlanetView {
   private root = new THREE.Group();
   private cellMeshes = new Map<number, THREE.Mesh>();
   private markers = new THREE.Group();
+  private pathGroup = new THREE.Group();
   private drag = false;
+  private moved = false;
   private prevX = 0;
   private prevY = 0;
   private spherical = { theta: 0.4, phi: 0.9, radius: 4.2 };
   private selectedCell: number | null = null;
+  private spin = true;
   onCellClick: ((cellId: number) => void) | null = null;
 
   constructor(canvasParent: HTMLElement) {
@@ -58,12 +62,14 @@ export class PlanetView {
     this.scene.add(rim);
 
     this.scene.add(this.root);
+    this.scene.add(this.pathGroup);
     this.scene.add(this.markers);
     this.updateCamera();
 
     const el = this.renderer.domElement;
     el.addEventListener("pointerdown", (e) => {
       this.drag = true;
+      this.moved = false;
       this.prevX = e.clientX;
       this.prevY = e.clientY;
     });
@@ -74,6 +80,7 @@ export class PlanetView {
       if (!this.drag) return;
       const dx = e.clientX - this.prevX;
       const dy = e.clientY - this.prevY;
+      if (Math.abs(dx) + Math.abs(dy) > 4) this.moved = true;
       this.prevX = e.clientX;
       this.prevY = e.clientY;
       this.spherical.theta -= dx * 0.005;
@@ -91,7 +98,10 @@ export class PlanetView {
       );
       this.updateCamera();
     });
-    el.addEventListener("click", (e) => this.pick(e));
+    el.addEventListener("click", (e) => {
+      if (this.moved) return;
+      this.pick(e);
+    });
 
     window.addEventListener("resize", () => {
       const w = canvasParent.clientWidth;
@@ -100,6 +110,10 @@ export class PlanetView {
       this.camera.updateProjectionMatrix();
       this.renderer.setSize(w, h);
     });
+  }
+
+  setSpin(on: boolean): void {
+    this.spin = on;
   }
 
   private updateCamera(): void {
@@ -120,37 +134,52 @@ export class PlanetView {
     );
     const ray = new THREE.Raycaster();
     ray.setFromCamera(mouse, this.camera);
-    const hits = ray.intersectObjects([...this.cellMeshes.values()]);
+    const hits = ray.intersectObjects([
+      ...this.cellMeshes.values(),
+      ...this.markers.children,
+    ]);
     if (hits[0]) {
-      const id = hits[0].object.userData.cellId as number;
+      const id = hits[0].object.userData.cellId as number | undefined;
+      if (id === undefined) return;
       this.selectedCell = id;
       this.onCellClick?.(id);
     }
   }
 
-  setPlanet(data: PlanetViewData): void {
-    while (this.root.children.length) {
-      const c = this.root.children[0]!;
-      this.root.remove(c);
-      if (c instanceof THREE.Mesh) {
+  private clearGroup(group: THREE.Group): void {
+    while (group.children.length) {
+      const c = group.children[0]!;
+      group.remove(c);
+      if (c instanceof THREE.Mesh || c instanceof THREE.LineSegments) {
         c.geometry.dispose();
-        (c.material as THREE.Material).dispose();
+        const mat = c.material;
+        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+        else (mat as THREE.Material).dispose();
       }
     }
+  }
+
+  setPlanet(data: PlanetViewData): void {
+    this.clearGroup(this.root);
     this.cellMeshes.clear();
 
-    const placedIds = new Set(data.placed.map((p) => p.cellId));
+    const placedMap = new Map(data.placed.map((p) => [p.cellId, p]));
     const routeIds = new Set(
       data.placed
         .filter((p) => p.connections.some(Boolean))
         .map((p) => p.cellId),
     );
     const baseSet = new Set(data.baseCellIds);
+    const towerOccupied = new Set(data.towers.map((t) => t.cellId));
 
     for (const cell of data.cells) {
-      const center = new THREE.Vector3(cell.center.x, cell.center.y, cell.center.z);
-      const verts = cell.vertices.map(
-        (v) => new THREE.Vector3(v.x, v.y, v.z).multiplyScalar(1.002),
+      const center = new THREE.Vector3(
+        cell.center.x,
+        cell.center.y,
+        cell.center.z,
+      );
+      const verts = cell.vertices.map((v) =>
+        new THREE.Vector3(v.x, v.y, v.z).multiplyScalar(1.002),
       );
       if (verts.length < 3) continue;
 
@@ -168,24 +197,38 @@ export class PlanetView {
       );
       geo.computeVertexNormals();
 
-      let color = 0x1a2e3a;
-      if (routeIds.has(cell.id)) color = 0x2a5a4a;
-      if (placedIds.has(cell.id) && !routeIds.has(cell.id)) color = 0x243040;
-      if (baseSet.has(cell.id)) color = 0x4a3a20;
-      if (this.selectedCell === cell.id) color = 0x3dd6c6;
+      let color = 0x152430;
+      let emissive = 0x000000;
+      let emissiveIntensity = 0;
+      if (routeIds.has(cell.id)) {
+        color = 0xe8c45a;
+        emissive = 0xa07820;
+        emissiveIntensity = 0.35;
+      }
+      if (baseSet.has(cell.id)) {
+        color = 0xff7a3d;
+        emissive = 0xff5520;
+        emissiveIntensity = 0.45;
+      }
+      if (this.selectedCell === cell.id) {
+        color = 0x3dd6c6;
+        emissive = 0x3dd6c6;
+        emissiveIntensity = 0.5;
+      }
 
       const mat = new THREE.MeshStandardMaterial({
         color,
+        emissive,
+        emissiveIntensity,
         flatShading: true,
-        metalness: 0.15,
-        roughness: 0.7,
+        metalness: 0.1,
+        roughness: 0.65,
       });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.userData.cellId = cell.id;
       this.root.add(mesh);
       this.cellMeshes.set(cell.id, mesh);
 
-      // Edge lines
       const edgePos: number[] = [];
       for (let i = 0; i < verts.length; i++) {
         const a = verts[i]!;
@@ -197,55 +240,174 @@ export class PlanetView {
         "position",
         new THREE.Float32BufferAttribute(edgePos, 3),
       );
-      const edges = new THREE.LineSegments(
-        edgeGeo,
-        new THREE.LineBasicMaterial({
-          color: 0x3dd6c6,
-          transparent: true,
-          opacity: 0.35,
-        }),
+      this.root.add(
+        new THREE.LineSegments(
+          edgeGeo,
+          new THREE.LineBasicMaterial({
+            color: routeIds.has(cell.id) ? 0xfff3a0 : 0x3dd6c6,
+            transparent: true,
+            opacity: routeIds.has(cell.id) ? 0.9 : 0.2,
+          }),
+        ),
       );
-      this.root.add(edges);
+
+      void placedMap;
+      void towerOccupied;
     }
 
-    // Atmosphere shell
     const shell = new THREE.Mesh(
       new THREE.SphereGeometry(1.08, 32, 32),
       new THREE.MeshBasicMaterial({
         color: 0x3dd6c6,
         transparent: true,
-        opacity: 0.06,
+        opacity: 0.05,
         side: THREE.BackSide,
       }),
     );
     this.root.add(shell);
 
+    this.drawRoutes(data);
     this.refreshMarkers(data);
   }
 
-  refreshMarkers(data: PlanetViewData): void {
-    while (this.markers.children.length) {
-      const c = this.markers.children[0]!;
-      this.markers.remove(c);
+  /** Thick glowing arcs between connected route cells */
+  private drawRoutes(data: PlanetViewData): void {
+    this.clearGroup(this.pathGroup);
+    const cellMap = new Map(data.cells.map((c) => [c.id, c]));
+    const placedMap = new Map(data.placed.map((p) => [p.cellId, p]));
+    const drawn = new Set<string>();
+
+    for (const placed of data.placed) {
+      const cell = cellMap.get(placed.cellId);
+      if (!cell) continue;
+      for (let i = 0; i < cell.neighbors.length; i++) {
+        if (!(placed.connections[i] ?? false)) continue;
+        const nid = cell.neighbors[i]!;
+        const nPlaced = placedMap.get(nid);
+        if (!nPlaced) continue;
+        const nCell = cellMap.get(nid);
+        if (!nCell) continue;
+        const back = nCell.neighbors.indexOf(cell.id);
+        if (back < 0 || !(nPlaced.connections[back] ?? false)) continue;
+        const key =
+          placed.cellId < nid
+            ? `${placed.cellId}:${nid}`
+            : `${nid}:${placed.cellId}`;
+        if (drawn.has(key)) continue;
+        drawn.add(key);
+
+        const a = new THREE.Vector3(
+          cell.center.x,
+          cell.center.y,
+          cell.center.z,
+        ).multiplyScalar(1.04);
+        const b = new THREE.Vector3(
+          nCell.center.x,
+          nCell.center.y,
+          nCell.center.z,
+        ).multiplyScalar(1.04);
+        const mid = a.clone().add(b).multiplyScalar(0.5).normalize().multiplyScalar(1.08);
+
+        const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
+        const tube = new THREE.Mesh(
+          new THREE.TubeGeometry(curve, 8, 0.028, 6, false),
+          new THREE.MeshStandardMaterial({
+            color: 0xffe566,
+            emissive: 0xffcc33,
+            emissiveIntensity: 0.85,
+            metalness: 0.2,
+            roughness: 0.35,
+          }),
+        );
+        this.pathGroup.add(tube);
+      }
     }
+  }
+
+  refreshMarkers(data: PlanetViewData): void {
+    this.clearGroup(this.markers);
+    this.drawRoutes(data);
+
     const cellMap = new Map(data.cells.map((c) => [c.id, c]));
     const ownerColor = new Map<string, string>();
     data.players.forEach((p, i) => {
       ownerColor.set(p.id, TEAM_COLORS[i % TEAM_COLORS.length]!);
     });
+    const towerCells = new Set(data.towers.map((t) => t.cellId));
+    const mineCells = new Set(data.mines.map((m) => m.cellId));
+
+    // Empty tower pads — bright cyan rings (clickable)
+    for (const placed of data.placed) {
+      if (!placed.tile.hasTowerPoint || towerCells.has(placed.cellId)) continue;
+      const cell = cellMap.get(placed.cellId);
+      if (!cell) continue;
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.055, 0.012, 8, 20),
+        new THREE.MeshStandardMaterial({
+          color: 0x3dd6c6,
+          emissive: 0x3dd6c6,
+          emissiveIntensity: 0.9,
+        }),
+      );
+      ring.position
+        .set(cell.center.x, cell.center.y, cell.center.z)
+        .multiplyScalar(1.055);
+      ring.lookAt(0, 0, 0);
+      ring.userData.cellId = placed.cellId;
+      this.markers.add(ring);
+
+      const pad = new THREE.Mesh(
+        new THREE.CircleGeometry(0.04, 16),
+        new THREE.MeshStandardMaterial({
+          color: 0x0a3030,
+          emissive: 0x1a6060,
+          emissiveIntensity: 0.6,
+          side: THREE.DoubleSide,
+        }),
+      );
+      pad.position.copy(ring.position);
+      pad.lookAt(0, 0, 0);
+      pad.userData.cellId = placed.cellId;
+      this.markers.add(pad);
+    }
+
+    // Unclaimed mines
+    for (const placed of data.placed) {
+      if (!placed.tile.hasMine || mineCells.has(placed.cellId)) continue;
+      const cell = cellMap.get(placed.cellId);
+      if (!cell) continue;
+      const mesh = new THREE.Mesh(
+        new THREE.OctahedronGeometry(0.035),
+        new THREE.MeshStandardMaterial({
+          color: 0xf0a05a,
+          emissive: 0xf0a05a,
+          emissiveIntensity: 0.5,
+        }),
+      );
+      mesh.position
+        .set(cell.center.x, cell.center.y, cell.center.z)
+        .multiplyScalar(1.05);
+      mesh.userData.cellId = placed.cellId;
+      this.markers.add(mesh);
+    }
 
     for (const t of data.towers) {
       const cell = cellMap.get(t.cellId);
       if (!cell) continue;
       const mesh = new THREE.Mesh(
-        new THREE.ConeGeometry(0.04, 0.12, 6),
+        new THREE.ConeGeometry(0.045, 0.14, 6),
         new THREE.MeshStandardMaterial({
           color: ownerColor.get(t.ownerId) ?? "#fff",
+          emissive: ownerColor.get(t.ownerId) ?? "#fff",
+          emissiveIntensity: 0.35,
         }),
       );
-      mesh.position.set(cell.center.x, cell.center.y, cell.center.z).multiplyScalar(1.05);
+      mesh.position
+        .set(cell.center.x, cell.center.y, cell.center.z)
+        .multiplyScalar(1.06);
       mesh.lookAt(0, 0, 0);
       mesh.rotateX(Math.PI / 2);
+      mesh.userData.cellId = t.cellId;
       this.markers.add(mesh);
     }
 
@@ -256,7 +418,10 @@ export class PlanetView {
         new THREE.BoxGeometry(0.05, 0.05, 0.05),
         new THREE.MeshStandardMaterial({ color: 0xf0a05a }),
       );
-      mesh.position.set(cell.center.x, cell.center.y, cell.center.z).multiplyScalar(1.04);
+      mesh.position
+        .set(cell.center.x, cell.center.y, cell.center.z)
+        .multiplyScalar(1.045);
+      mesh.userData.cellId = m.cellId;
       this.markers.add(mesh);
     }
 
@@ -264,14 +429,16 @@ export class PlanetView {
       const cell = cellMap.get(b.cellId);
       if (!cell) continue;
       const mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(0.03, 8, 8),
+        new THREE.SphereGeometry(0.035, 8, 8),
         new THREE.MeshStandardMaterial({
           color: ownerColor.get(b.ownerId) ?? "#fff",
           emissive: ownerColor.get(b.ownerId) ?? "#fff",
-          emissiveIntensity: 0.3,
+          emissiveIntensity: 0.45,
         }),
       );
-      mesh.position.set(cell.center.x, cell.center.y, cell.center.z).multiplyScalar(1.06);
+      mesh.position
+        .set(cell.center.x, cell.center.y, cell.center.z)
+        .multiplyScalar(1.07);
       this.markers.add(mesh);
     }
 
@@ -279,19 +446,25 @@ export class PlanetView {
       const cell = cellMap.get(p.baseCellId);
       if (!cell) continue;
       const mesh = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.07),
+        new THREE.OctahedronGeometry(0.08),
         new THREE.MeshStandardMaterial({
           color: ownerColor.get(p.id) ?? "#fff",
-          emissive: p.alive ? 0x222222 : 0x550000,
+          emissive: p.alive ? 0x333333 : 0x550000,
+          emissiveIntensity: 0.4,
         }),
       );
-      mesh.position.set(cell.center.x, cell.center.y, cell.center.z).multiplyScalar(1.08);
+      mesh.position
+        .set(cell.center.x, cell.center.y, cell.center.z)
+        .multiplyScalar(1.09);
+      mesh.userData.cellId = p.baseCellId;
       this.markers.add(mesh);
     }
   }
 
   render(): void {
-    this.root.rotation.y += 0.0008;
+    if (this.spin) this.root.rotation.y += 0.0005;
+    this.pathGroup.rotation.y = this.root.rotation.y;
+    this.markers.rotation.y = this.root.rotation.y;
     this.renderer.render(this.scene, this.camera);
   }
 }

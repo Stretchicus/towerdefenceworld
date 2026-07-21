@@ -45,15 +45,20 @@ interface MatchState {
     baseCellId: number;
   }[];
   towers: { id: string; cellId: number; ownerId: string; friendlyFire: boolean }[];
-  mines: { cellId: number }[];
+  mines: { cellId: number; id?: string; ownerId?: string }[];
   bods: { cellId: number; ownerId: string }[];
 }
+
+const TOWER_COST = { stone: 25, power: 10 };
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
   <header class="top">
     <h1>TOWER DEFENCE WORLD</h1>
-    <div class="meta" id="status">Connecting…</div>
+    <div class="header-actions">
+      <div class="meta" id="status">Connecting…</div>
+      <button id="btn-leave" class="secondary leave-btn" hidden>Leave</button>
+    </div>
   </header>
   <div id="viewport">
     <div class="hud" id="hud"></div>
@@ -63,6 +68,7 @@ app.innerHTML = `
 const viewport = document.getElementById("viewport")!;
 const hud = document.getElementById("hud")!;
 const statusEl = document.getElementById("status")!;
+const leaveBtn = document.getElementById("btn-leave") as HTMLButtonElement;
 
 const socket = new GameSocket();
 const planet = new PlanetView(viewport);
@@ -74,6 +80,7 @@ let lastLobby: LobbyState | null = null;
 let lastMatch: MatchState | null = null;
 let lastError = "";
 let planetBuiltFor = "";
+let selectedBuildCell: number | null = null;
 
 const params = new URLSearchParams(location.search);
 const joinRoom = params.get("room");
@@ -82,8 +89,57 @@ function me() {
   return lastMatch?.players.find((p) => p.id === playerId) ?? null;
 }
 
+function inRoom(): boolean {
+  return Boolean(lastLobby || lastMatch);
+}
+
+function updateLeaveBtn(): void {
+  leaveBtn.hidden = !inRoom();
+}
+
+function leaveRoom(): void {
+  if (inRoom()) socket.send({ type: "leave" });
+  resetToMenu();
+}
+
+function resetToMenu(): void {
+  roomCode = null;
+  token = null;
+  playerId = null;
+  lastLobby = null;
+  lastMatch = null;
+  lastError = "";
+  planetBuiltFor = "";
+  selectedBuildCell = null;
+  localStorage.removeItem("tdw_room");
+  localStorage.removeItem("tdw_token");
+  localStorage.removeItem("tdw_player");
+  history.replaceState({}, "", location.pathname);
+  statusEl.textContent = "Link online";
+  updateLeaveBtn();
+  paint();
+}
+
+leaveBtn.addEventListener("click", () => leaveRoom());
+
+function freeTowerPads(m: MatchState): number[] {
+  const occupied = new Set(m.towers.map((t) => t.cellId));
+  return m.placed
+    .filter((p) => p.tile.hasTowerPoint && !occupied.has(p.cellId))
+    .map((p) => p.cellId);
+}
+
+function canAffordTower(self: NonNullable<ReturnType<typeof me>>): boolean {
+  return (
+    (self.bank.stone ?? 0) >= TOWER_COST.stone &&
+    (self.bank.power ?? 0) >= TOWER_COST.power
+  );
+}
+
 function renderLobby(): void {
+  planet.setSpin(true);
   const s = lastLobby;
+  updateLeaveBtn();
   hud.innerHTML = `
     <div class="panel lobby">
       <h2>COMMAND LOBBY</h2>
@@ -213,6 +269,8 @@ function renderLobby(): void {
 
 function renderMatch(): void {
   const m = lastMatch!;
+  planet.setSpin(m.phase === "placement");
+  updateLeaveBtn();
   const self = me();
   const bank = self
     ? Object.entries(self.bank)
@@ -238,13 +296,61 @@ function renderMatch(): void {
         .join("")
     : "";
 
+  const pads = freeTowerPads(m);
+  const afford = self ? canAffordTower(self) : false;
+  const myTowers = m.towers.filter((t) => t.ownerId === playerId);
+
+  const buildList =
+    m.phase === "combat"
+      ? `<h2>BUILD TOWER</h2>
+      <p class="hint">Cost: ${TOWER_COST.stone} stone + ${TOWER_COST.power} power</p>
+      <p class="hint">Cyan rings on the planet = empty tower pads. Click a ring or a button below.</p>
+      <div class="build-list">
+        ${
+          pads.length === 0
+            ? `<p class="hint">No free pads left.</p>`
+            : pads
+                .slice(0, 12)
+                .map(
+                  (cellId) =>
+                    `<button class="build-btn ${selectedBuildCell === cellId ? "selected" : ""}" data-build="${cellId}" ${afford ? "" : "disabled"}>
+                      Pad #${cellId}${afford ? "" : " (need resources)"}
+                    </button>`,
+                )
+                .join("") +
+              (pads.length > 12
+                ? `<p class="hint">+${pads.length - 12} more on map</p>`
+                : "")
+        }
+      </div>
+      <h2>YOUR TOWERS (${myTowers.length})</h2>
+      <div class="build-list">
+        ${
+          myTowers.length === 0
+            ? `<p class="hint">None yet.</p>`
+            : myTowers
+                .map(
+                  (t) =>
+                    `<button class="secondary build-btn" data-up-tower="${t.id}">Upgrade #${t.cellId}</button>`,
+                )
+                .join("")
+        }
+      </div>`
+      : `<p class="hint">Gold tubes = routes. Orange cells = bases.</p>`;
+
   hud.innerHTML = `
     <div class="panel side-left">
       <h2>${m.phase.toUpperCase()} · T${m.tick}</h2>
+      <div class="legend">
+        <span><i class="swatch route"></i> Route</span>
+        <span><i class="swatch base"></i> Base</span>
+        <span><i class="swatch pad"></i> Tower pad</span>
+      </div>
       <div class="bank">${bank}</div>
       <p style="font-size:0.85rem;color:var(--muted);margin-top:0.6rem">
         HP: ${self?.baseHp.toFixed(0) ?? "—"}
         ${m.phase === "placement" ? `· Tile ${m.bagIndex}/${m.bagTotal}` : ""}
+        ${m.phase === "combat" ? `· Free pads: ${pads.length}` : ""}
       </p>
       <p class="error">${lastError}</p>
       <h2>TARGETS</h2>
@@ -262,14 +368,14 @@ function renderMatch(): void {
           )
           .join("")}
       </ul>
-      <h2>ACTIONS</h2>
-      <p style="font-size:0.8rem;color:var(--muted)">Click a cell: place tile (manual) or build tower / claim mine.</p>
-      <div class="row">
+      ${buildList}
+      <div class="row" style="margin-top:0.75rem">
         <button id="btn-upgrade-base" class="secondary">Upgrade base</button>
       </div>
       ${
         m.phase === "ended"
-          ? `<p>Winners: ${m.winnerIds.map((id) => m.players.find((p) => p.id === id)?.name ?? id).join(", ")}</p>`
+          ? `<p>Winners: ${m.winnerIds.map((id) => m.players.find((p) => p.id === id)?.name ?? id).join(", ")}</p>
+             <button id="btn-exit-end">Back to menu</button>`
           : ""
       }
     </div>
@@ -289,6 +395,22 @@ function renderMatch(): void {
       socket.send({ type: "toggleBod", bodTypeId: id, enabled: !on });
     });
   });
+  hud.querySelectorAll("[data-build]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cellId = Number((btn as HTMLElement).dataset.build);
+      selectedBuildCell = cellId;
+      socket.send({ type: "buildTower", cellId });
+    });
+  });
+  hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const structureId = (btn as HTMLElement).dataset.upTower!;
+      socket.send({
+        type: "upgrade",
+        target: { kind: "tower", structureId },
+      });
+    });
+  });
   document.getElementById("btn-upgrade-base")?.addEventListener("click", () => {
     if (!playerId) return;
     socket.send({
@@ -296,8 +418,10 @@ function renderMatch(): void {
       target: { kind: "base", playerId },
     });
   });
+  document.getElementById("btn-exit-end")?.addEventListener("click", () => {
+    leaveRoom();
+  });
 
-  const key = `${m.planet.cells.length}:${m.placed.length}:${m.phase}`;
   const viewData: PlanetViewData = {
     cells: m.planet.cells,
     baseCellIds: m.planet.baseCellIds,
@@ -307,12 +431,14 @@ function renderMatch(): void {
     bods: m.bods,
     players: m.players,
   };
-  if (planetBuiltFor !== key.split(":")[0] + ":" + m.phase || m.phase === "placement") {
+  const structKey = `${m.planet.cells.length}:${m.placed.length}:${m.towers.length}:${m.mines.length}`;
+  if (planetBuiltFor !== `${m.planet.cells.length}:${m.phase}`) {
     planet.setPlanet(viewData);
     planetBuiltFor = `${m.planet.cells.length}:${m.phase}`;
   } else {
     planet.refreshMarkers(viewData);
   }
+  void structKey;
 }
 
 planet.onCellClick = (cellId) => {
@@ -323,9 +449,13 @@ planet.onCellClick = (cellId) => {
   }
   if (lastMatch.phase === "combat") {
     const placed = lastMatch.placed.find((p) => p.cellId === cellId);
-    if (placed?.tile.hasTowerPoint) {
+    const hasTower = lastMatch.towers.some((t) => t.cellId === cellId);
+    if (placed?.tile.hasTowerPoint && !hasTower) {
+      selectedBuildCell = cellId;
       socket.send({ type: "buildTower", cellId });
-    } else if (placed?.tile.hasMine) {
+      return;
+    }
+    if (placed?.tile.hasMine && !lastMatch.mines.some((x) => x.cellId === cellId)) {
       socket.send({ type: "claimMine", cellId });
     }
   }
@@ -370,6 +500,7 @@ socket.onMessage = (msg: ServerMessage) => {
     localStorage.setItem("tdw_player", msg.playerId);
     statusEl.textContent = `Room ${msg.room}`;
     history.replaceState({}, "", `?room=${msg.room}`);
+    updateLeaveBtn();
   } else if (msg.type === "state") {
     lastError = "";
     const state = msg.state as { phase: string };
@@ -386,6 +517,8 @@ socket.onMessage = (msg: ServerMessage) => {
     paint();
   } else if (msg.type === "ended") {
     statusEl.textContent = `Ended · ${msg.winnerIds.join(", ")}`;
+  } else if (msg.type === "left") {
+    resetToMenu();
   }
 };
 

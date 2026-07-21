@@ -4,7 +4,8 @@ export type ServerMessage =
   | { type: "room"; room: string; token: string; playerId: string }
   | { type: "state"; state: unknown }
   | { type: "error"; message: string }
-  | { type: "ended"; winnerIds: string[] };
+  | { type: "ended"; winnerIds: string[] }
+  | { type: "left" };
 
 export class GameSocket {
   private ws: WebSocket | null = null;
