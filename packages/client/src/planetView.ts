@@ -393,18 +393,88 @@ export class PlanetView {
     this.refreshMarkers(data, true);
   }
 
-  /** Flat road ribbons on the hex surface (not raised tubes) */
+  /** Flat road ribbons coplanar with each hex face (same fan as tiles) */
   private drawRoutes(data: PlanetViewData): void {
     this.clearGroup(this.pathGroup);
     const cellMap = new Map(data.cells.map((c) => [c.id, c]));
     const placedMap = new Map(data.placed.map((p) => [p.cellId, p]));
-    const drawn = new Set<string>();
-    const R = PlanetView.SURFACE;
-    const halfW = 0.028;
+    const mat = new THREE.MeshStandardMaterial({
+      color: 0x6a7a68,
+      emissive: 0x2a3428,
+      emissiveIntensity: 0.25,
+      metalness: 0.05,
+      roughness: 0.9,
+      side: THREE.DoubleSide,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    const halfW = 0.016;
+    const lift = 0.0012;
+    const tInner = 0.18;
+    const tOuter = 0.97;
+
+    const addStrip = (
+      centerRaw: THREE.Vector3,
+      vaRaw: THREE.Vector3,
+      vbRaw: THREE.Vector3,
+    ) => {
+      const outward = centerRaw.clone().normalize();
+      const c = centerRaw
+        .clone()
+        .multiplyScalar(0.98)
+        .addScaledVector(outward, lift);
+      const a = vaRaw
+        .clone()
+        .multiplyScalar(1.002)
+        .addScaledVector(vaRaw.clone().normalize(), lift);
+      const b = vbRaw
+        .clone()
+        .multiplyScalar(1.002)
+        .addScaledVector(vbRaw.clone().normalize(), lift);
+      const edgeMid = a.clone().add(b).multiplyScalar(0.5);
+      const pIn = c.clone().lerp(edgeMid, tInner);
+      const pOut = c.clone().lerp(edgeMid, tOuter);
+      const side = new THREE.Vector3().subVectors(a, b);
+      if (side.lengthSq() < 1e-12) return;
+      side.normalize().multiplyScalar(halfW);
+
+      const i0 = pIn.clone().add(side);
+      const i1 = pIn.clone().sub(side);
+      const o0 = pOut.clone().add(side);
+      const o1 = pOut.clone().sub(side);
+
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(
+          [
+            i0.x, i0.y, i0.z,
+            i1.x, i1.y, i1.z,
+            o0.x, o0.y, o0.z,
+            i1.x, i1.y, i1.z,
+            o1.x, o1.y, o1.z,
+            o0.x, o0.y, o0.z,
+          ],
+          3,
+        ),
+      );
+      geo.computeVertexNormals();
+      this.pathGroup.add(new THREE.Mesh(geo, mat));
+    };
 
     for (const placed of data.placed) {
       const cell = cellMap.get(placed.cellId);
-      if (!cell) continue;
+      if (!cell || cell.vertices.length < 3) continue;
+      const center = new THREE.Vector3(
+        cell.center.x,
+        cell.center.y,
+        cell.center.z,
+      );
+      const verts = cell.vertices.map(
+        (v) => new THREE.Vector3(v.x, v.y, v.z),
+      );
+
       for (let i = 0; i < cell.neighbors.length; i++) {
         if (!(placed.connections[i] ?? false)) continue;
         const nid = cell.neighbors[i]!;
@@ -414,66 +484,10 @@ export class PlanetView {
         if (!nCell) continue;
         const back = nCell.neighbors.indexOf(cell.id);
         if (back < 0 || !(nPlaced.connections[back] ?? false)) continue;
-        const key =
-          placed.cellId < nid
-            ? `${placed.cellId}:${nid}`
-            : `${nid}:${placed.cellId}`;
-        if (drawn.has(key)) continue;
-        drawn.add(key);
 
-        const a = new THREE.Vector3(
-          cell.center.x,
-          cell.center.y,
-          cell.center.z,
-        ).normalize();
-        const b = new THREE.Vector3(
-          nCell.center.x,
-          nCell.center.y,
-          nCell.center.z,
-        ).normalize();
-        let side = new THREE.Vector3().crossVectors(a, b);
-        if (side.lengthSq() < 1e-10) {
-          side = new THREE.Vector3().crossVectors(a, new THREE.Vector3(0, 1, 0));
-        }
-        if (side.lengthSq() < 1e-10) {
-          side = new THREE.Vector3().crossVectors(a, new THREE.Vector3(1, 0, 0));
-        }
-        side.normalize().multiplyScalar(halfW);
-
-        const a0 = a.clone().add(side).normalize().multiplyScalar(R);
-        const a1 = a.clone().sub(side).normalize().multiplyScalar(R);
-        const b0 = b.clone().add(side).normalize().multiplyScalar(R);
-        const b1 = b.clone().sub(side).normalize().multiplyScalar(R);
-
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute(
-          "position",
-          new THREE.Float32BufferAttribute(
-            [
-              a0.x, a0.y, a0.z,
-              a1.x, a1.y, a1.z,
-              b0.x, b0.y, b0.z,
-              a1.x, a1.y, a1.z,
-              b1.x, b1.y, b1.z,
-              b0.x, b0.y, b0.z,
-            ],
-            3,
-          ),
-        );
-        geo.computeVertexNormals();
-        this.pathGroup.add(
-          new THREE.Mesh(
-            geo,
-            new THREE.MeshStandardMaterial({
-              color: 0x6a7a68,
-              emissive: 0x2a3428,
-              emissiveIntensity: 0.2,
-              metalness: 0.05,
-              roughness: 0.9,
-              side: THREE.DoubleSide,
-            }),
-          ),
-        );
+        const va = verts[i]!;
+        const vb = verts[(i + 1) % verts.length]!;
+        addStrip(center, va, vb);
       }
     }
   }

@@ -48,12 +48,19 @@ interface MatchState {
     isAi: boolean;
     bank: Record<string, number>;
     baseHp: number;
+    baseLevel?: number;
     targetEnabled: Record<string, boolean>;
     bodEnabled: Record<string, boolean>;
     alive: boolean;
     baseCellId: number;
   }[];
-  towers: { id: string; cellId: number; ownerId: string; friendlyFire: boolean }[];
+  towers: {
+    id: string;
+    cellId: number;
+    ownerId: string;
+    level?: number;
+    friendlyFire: boolean;
+  }[];
   mines: { cellId: number; id?: string; ownerId?: string }[];
   bods: {
     id: string;
@@ -67,13 +74,15 @@ interface MatchState {
   bodMoveEveryTicks?: number;
   costs?: {
     towerBuild: Record<string, number>;
-    towerUpgrade: Record<string, number>;
-    baseUpgrade: Record<string, number>;
+    towerUpgradeBase: Record<string, number>;
+    towerUpgradeLevelIncrease: number;
+    baseUpgradeBase: Record<string, number>;
+    baseUpgradeLevelIncrease: number;
     bods: Record<string, Record<string, number>>;
   };
 }
 
-const CLIENT_BUILD = "v0.1.10";
+const CLIENT_BUILD = "v0.1.11";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 
 const app = document.getElementById("app")!;
@@ -161,13 +170,53 @@ function freeTowerPads(m: MatchState): number[] {
 function matchCosts(m: MatchState) {
   return {
     towerBuild: m.costs?.towerBuild ?? FALLBACK_TOWER,
-    towerUpgrade: m.costs?.towerUpgrade ?? { stone: 40, power: 30 },
-    baseUpgrade: m.costs?.baseUpgrade ?? { stone: 40, power: 30 },
+    towerUpgradeBase: m.costs?.towerUpgradeBase ?? { stone: 40, power: 30 },
+    towerUpgradeLevelIncrease: m.costs?.towerUpgradeLevelIncrease ?? 1.35,
+    baseUpgradeBase: m.costs?.baseUpgradeBase ?? { stone: 40, power: 30 },
+    baseUpgradeLevelIncrease: m.costs?.baseUpgradeLevelIncrease ?? 1.4,
     bods: m.costs?.bods ?? {
       grunt: { stone: 4, water: 2 },
       bruiser: { stone: 12, power: 6 },
     },
   };
+}
+
+/** Mirror server scaleCost — ceil(base * mult^level) */
+function scaleCostClient(
+  base: Record<string, number>,
+  levelIncrease: number,
+  level: number,
+): Record<string, number> {
+  const mult = Math.pow(levelIncrease, level);
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(base)) {
+    out[k] = Math.ceil(v * mult);
+  }
+  return out;
+}
+
+function towerUpgradeCost(
+  m: MatchState,
+  tower: { level?: number },
+): Record<string, number> {
+  const c = matchCosts(m);
+  return scaleCostClient(
+    c.towerUpgradeBase,
+    c.towerUpgradeLevelIncrease,
+    tower.level ?? 0,
+  );
+}
+
+function baseUpgradeCost(
+  m: MatchState,
+  self: { baseLevel?: number } | null,
+): Record<string, number> {
+  const c = matchCosts(m);
+  return scaleCostClient(
+    c.baseUpgradeBase,
+    c.baseUpgradeLevelIncrease,
+    self?.baseLevel ?? 0,
+  );
 }
 
 function canAffordCost(
@@ -454,10 +503,8 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
 function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
   const costs = matchCosts(m);
   const affordTower = self ? canAffordCost(self.bank, costs.towerBuild) : false;
-  const affordTowerUp = self
-    ? canAffordCost(self.bank, costs.towerUpgrade)
-    : false;
-  const affordBase = self ? canAffordCost(self.bank, costs.baseUpgrade) : false;
+  const baseCost = baseUpgradeCost(m, self);
+  const affordBase = self ? canAffordCost(self.bank, baseCost) : false;
 
   const bankEl = document.getElementById("bank-live");
   if (bankEl && self) {
@@ -493,9 +540,17 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
   });
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
     const el = btn as HTMLButtonElement;
-    el.disabled = !affordTowerUp;
+    const structureId = el.dataset.upTower!;
+    const tower = m.towers.find((t) => t.id === structureId);
+    const upCost = tower ? towerUpgradeCost(m, tower) : costs.towerUpgradeBase;
+    const afford = self ? canAffordCost(self.bank, upCost) : false;
+    el.disabled = !afford;
     const chips = el.querySelector(".cost-row");
-    if (chips) chips.innerHTML = costChipsHtml(costs.towerUpgrade, affordTowerUp);
+    if (chips) chips.innerHTML = costChipsHtml(upCost, afford);
+    const label = el.querySelector(".btn-label");
+    if (label && tower) {
+      label.textContent = `Upgrade #${tower.cellId} (L${(tower.level ?? 0) + 1})`;
+    }
   });
   const baseBtn = document.getElementById(
     "btn-upgrade-base",
@@ -503,10 +558,13 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
   if (baseBtn) {
     baseBtn.disabled = !affordBase;
     const chips = baseBtn.querySelector(".cost-row");
-    if (chips) chips.innerHTML = costChipsHtml(costs.baseUpgrade, affordBase);
+    if (chips) chips.innerHTML = costChipsHtml(baseCost, affordBase);
+    const label = baseBtn.querySelector(".btn-label");
+    if (label) {
+      label.textContent = `Upgrade base (L${(self?.baseLevel ?? 0) + 1})`;
+    }
   }
 
-  // Bod toggle chips show spawn cost as hint
   hud.querySelectorAll("[data-bod]").forEach((btn) => {
     const el = btn as HTMLElement;
     const id = el.dataset.bod!;
@@ -535,10 +593,8 @@ function renderMatch(): void {
   const self = me();
   const costs = matchCosts(m);
   const affordTower = self ? canAffordCost(self.bank, costs.towerBuild) : false;
-  const affordTowerUp = self
-    ? canAffordCost(self.bank, costs.towerUpgrade)
-    : false;
-  const affordBase = self ? canAffordCost(self.bank, costs.baseUpgrade) : false;
+  const baseCost = baseUpgradeCost(m, self);
+  const affordBase = self ? canAffordCost(self.bank, baseCost) : false;
 
   const pads = freeTowerPads(m);
   const myTowers = m.towers.filter((t) => t.ownerId === playerId);
@@ -560,7 +616,8 @@ function renderMatch(): void {
     myTurn ? "1" : "0",
     placementRotation,
     pads.join(","),
-    myTowers.map((t) => t.id).join(","),
+    myTowers.map((t) => `${t.id}:${t.level ?? 0}`).join(","),
+    self?.baseLevel ?? 0,
     Object.entries(self?.targetEnabled ?? {})
       .map(([k, v]) => `${k}:${v}`)
       .join(","),
@@ -627,13 +684,16 @@ function renderMatch(): void {
           myTowers.length === 0
             ? `<p class="hint">None yet.</p>`
             : myTowers
-                .map(
-                  (t) =>
-                    `<button class="secondary build-btn" data-up-tower="${t.id}" ${affordTowerUp ? "" : "disabled"}>
-                      <span class="btn-label">Upgrade #${t.cellId}</span>
-                      <span class="cost-row">${costChipsHtml(costs.towerUpgrade, affordTowerUp)}</span>
-                    </button>`,
-                )
+                .map((t) => {
+                  const upCost = towerUpgradeCost(m, t);
+                  const affordUp = self
+                    ? canAffordCost(self.bank, upCost)
+                    : false;
+                  return `<button class="secondary build-btn" data-up-tower="${t.id}" ${affordUp ? "" : "disabled"}>
+                      <span class="btn-label">Upgrade #${t.cellId} (L${(t.level ?? 0) + 1})</span>
+                      <span class="cost-row">${costChipsHtml(upCost, affordUp)}</span>
+                    </button>`;
+                })
                 .join("")
         }
       </div>`
@@ -706,8 +766,8 @@ function renderMatch(): void {
       ${buildList}
       <div class="row" style="margin-top:0.75rem">
         <button id="btn-upgrade-base" class="secondary" ${affordBase ? "" : "disabled"}>
-          <span class="btn-label">Upgrade base</span>
-          <span class="cost-row">${costChipsHtml(costs.baseUpgrade, affordBase)}</span>
+          <span class="btn-label">Upgrade base (L${(self?.baseLevel ?? 0) + 1})</span>
+          <span class="cost-row">${costChipsHtml(baseCost, affordBase)}</span>
         </button>
       </div>
       ${

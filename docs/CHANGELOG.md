@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.11 — 2026-07-21
+
+### Fixed
+
+- Roads drawn coplanar with hex faces (no sphere-chord dip at joins)
+- Upgrade cost chips / greying use level-scaled costs (match server)
+
 ## 0.1.10 — 2026-07-21
 
 ### Changed

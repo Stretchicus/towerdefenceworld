@@ -924,14 +924,17 @@ export function serializeMatch(state: MatchState) {
         state.config.towers.basic?.buildCost ?? {},
         state.resources,
       ),
-      towerUpgrade: filterCostToResources(
+      towerUpgradeBase: filterCostToResources(
         state.config.towers.basic?.upgradeCost ?? {},
         state.resources,
       ),
-      baseUpgrade: filterCostToResources(
+      towerUpgradeLevelIncrease:
+        state.config.towers.basic?.upgradeLevelIncrease ?? 1.35,
+      baseUpgradeBase: filterCostToResources(
         state.config.base.upgradeCost,
         state.resources,
       ),
+      baseUpgradeLevelIncrease: state.config.base.upgradeLevelIncrease,
       bods: Object.fromEntries(
         Object.entries(state.config.bods).map(([id, def]) => [
           id,

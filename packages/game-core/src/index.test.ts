@@ -14,6 +14,7 @@ import {
   defaultGameConfig,
   findPath,
   pay,
+  scaleCost,
   serializeMatch,
   startingBankFor,
   tickMatch,
@@ -191,6 +192,14 @@ describe("match combat", () => {
     pay(bank, cost);
     assert.equal(canAfford(bank, cost), false);
     assert.ok((bank.stone ?? 0) >= 4, "buffer left for cheap bods");
+  });
+
+  it("upgrade costs scale with level", () => {
+    const base = { stone: 40, power: 30 };
+    const l0 = scaleCost(base, 1.35, 0);
+    const l1 = scaleCost(base, 1.35, 1);
+    assert.equal(l0.stone, 40);
+    assert.ok((l1.stone ?? 0) > (l0.stone ?? 0));
   });
 
   it("manual placement waits on human; AI does not dump the bag", () => {
