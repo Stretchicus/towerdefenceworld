@@ -154,13 +154,17 @@ export function createMatch(input: CreateMatchInput): MatchState {
   const resources = activeResources(config, settings.resourceCount);
   const planet = buildPlanet(settings.worldSize, settings.seatCount);
   const placement = createPlacementState(planet);
-  const corridors = buildCorridorNetwork(planet, planet.baseCellIds);
   const rngBag = createRng(input.seed);
+  const corridors = buildCorridorNetwork(planet, planet.baseCellIds, {
+    rng: createRng(input.seed ^ 0xc0ffee),
+    fillFraction: config.corridorFillFraction,
+  });
   const tileBag =
     settings.placementMode === "manual"
       ? generateCorridorBag(corridors, planet, planet.baseCellIds, {
           towerPointChance: config.towerPointChance,
           mineChance: config.mineChance,
+          minTowerPoints: config.minTowerPoints,
           rng: rngBag,
         })
       : []; // auto fills corridors directly — no bag
@@ -235,6 +239,7 @@ function runAutoPlacement(state: MatchState): void {
   fillCorridorPlacement(state.placement, state.corridors, {
     towerPointChance: state.config.towerPointChance,
     mineChance: state.config.mineChance,
+    minTowerPoints: state.config.minTowerPoints,
     rng,
   });
   state.bagIndex = state.tileBag.length;
@@ -246,6 +251,7 @@ export function finishPlacement(state: MatchState): void {
   fillCorridorPlacement(state.placement, state.corridors, {
     towerPointChance: state.config.towerPointChance,
     mineChance: state.config.mineChance,
+    minTowerPoints: state.config.minTowerPoints,
     rng: createRng(state.seed ^ 0x51f),
   });
   if (!basesConnected(state.placement)) {

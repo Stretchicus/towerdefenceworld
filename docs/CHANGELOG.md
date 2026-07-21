@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.13 — 2026-07-21
+
+### Fixed
+
+- Road strips meet through hex centres so paths look continuous
+- At least 5 tower pads guaranteed on corridors
+- Auto corridors meander via triangle detours to ~75% of planet cells
+
 ## 0.1.11 — 2026-07-21
 
 ### Fixed

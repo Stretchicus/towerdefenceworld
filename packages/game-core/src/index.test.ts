@@ -102,6 +102,17 @@ describe("placement", () => {
       );
       void placed;
     }
+    const towers = [...match.placement.placed.values()].filter(
+      (p) =>
+        p.tile.hasTowerPoint &&
+        !match.planet.baseCellIds.includes(p.cellId),
+    ).length;
+    assert.ok(towers >= 5, `expected ≥5 tower pads, got ${towers}`);
+    assert.ok(
+      match.corridors.cellIds.size >=
+        Math.floor(match.planet.cells.length * 0.75),
+      `corridor fill ${match.corridors.cellIds.size}/${match.planet.cells.length}`,
+    );
   });
 });
 

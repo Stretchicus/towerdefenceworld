@@ -16,6 +16,8 @@ export const defaultGameConfig: GameConfig = {
   resourceCountDefault: 3,
   startingBank: { stone: 80, water: 80, power: 80 },
   towerPointChance: 0.35,
+  minTowerPoints: 5,
+  corridorFillFraction: 0.75,
   mineChance: 0.2,
   baseContactDamage: 8,
   tickRateHz: 10,

@@ -59,6 +59,10 @@ export interface GameConfig {
   resourceCountDefault: number;
   startingBank: ResourceMap;
   towerPointChance: number;
+  /** Guaranteed minimum tower pads on the corridor (non-base cells) */
+  minTowerPoints: number;
+  /** Fraction of planet cells that should lie on meandering corridors */
+  corridorFillFraction: number;
   mineChance: number;
   baseContactDamage: number;
   tickRateHz: number;

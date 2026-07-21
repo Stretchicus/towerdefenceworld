@@ -410,10 +410,11 @@ export class PlanetView {
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -1,
     });
-    const halfW = 0.016;
+    const halfW = 0.018;
     const lift = 0.0012;
-    const tInner = 0.18;
-    const tOuter = 0.97;
+    // Through the face centre so open edges join into one continuous road
+    const tInner = 0;
+    const tOuter = 0.99;
 
     const addStrip = (
       centerRaw: THREE.Vector3,
