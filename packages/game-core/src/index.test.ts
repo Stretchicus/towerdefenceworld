@@ -11,17 +11,22 @@ import {
   createPlacementState,
   createRng,
   defaultTowerLoadout,
+  deriveTowerCosts,
   generateTileBag,
   defaultGameConfig,
   findPath,
   intentBuildTower,
+  normalizeTowerForResources,
+  parseLoadoutFile,
   pay,
   scaleCost,
   scoreTowerPoints,
+  scoreTowerPointsRaw,
   serializeMatch,
   startingBankFor,
   TOWER_POINT_POOL,
   tickMatch,
+  towerCooldownTicks,
   runAiPlacement,
   validateLoadout,
   validateTowerDef,
@@ -247,18 +252,77 @@ describe("match combat", () => {
   });
 
   it("default tower loadout is point-legal", () => {
-    const loadout = defaultTowerLoadout();
-    assert.equal(loadout.length, 3);
-    const v = validateLoadout(loadout);
-    assert.equal(v.ok, true, v.ok ? "" : v.errors.join("; "));
-    for (const t of loadout) {
-      assert.ok(
-        scoreTowerPoints(t) <= TOWER_POINT_POOL,
-        `${t.id} score ${scoreTowerPoints(t)}`,
-      );
+    for (const n of [2, 3] as const) {
+      const loadout = defaultTowerLoadout(n);
+      assert.equal(loadout.length, 3);
+      const v = validateLoadout(loadout, n);
+      assert.equal(v.ok, true, v.ok ? "" : v.errors.join("; "));
+      for (const t of loadout) {
+        assert.ok(
+          scoreTowerPoints(t, n) <= TOWER_POINT_POOL,
+          `${t.id} score ${scoreTowerPoints(t, n)}`,
+        );
+      }
     }
+    const loadout = defaultTowerLoadout(3);
     const broken = { ...loadout[0]!, power: 40, range: 6 };
-    assert.equal(validateTowerDef(broken).ok, false);
+    assert.equal(validateTowerDef(broken, 3).ok, false);
+  });
+
+  it("v2 scoring and derived costs respect resourceCount", () => {
+    assert.equal(towerCooldownTicks(6), 5);
+    assert.equal(towerCooldownTicks(1), 10);
+    assert.equal(towerCooldownTicks(10), 1);
+
+    const example = normalizeTowerForResources(
+      {
+        id: "t",
+        power: 8,
+        range: 2,
+        fireRate: 4,
+        buildDiscount: 0,
+        upgradeDiscount: 0,
+        aoeSize: 0,
+        aoeFade: 0,
+        jump: 0,
+        jumpLoss: 0,
+        slowPower: 0,
+        shotGivesPercent: 0,
+        shootCost: {},
+        buildCost: {},
+        upgradeCost: {},
+        upgradeStatIncrease: { power: 0.15, range: 0.1 },
+        upgradeLevelIncrease: 1.35,
+        friendlyFireDefault: false,
+      },
+      3,
+    );
+    assert.equal(scoreTowerPointsRaw(example, 3), 102);
+    const costs = deriveTowerCosts(example, 3);
+    assert.deepEqual(costs.buildCost, { stone: 44, power: 52, water: 30 });
+    assert.deepEqual(costs.upgradeCost, { stone: 24, power: 28, water: 18 });
+
+    for (const n of [2, 3] as const) {
+      const loadout = defaultTowerLoadout(n);
+      assert.equal(validateLoadout(loadout, n).ok, true);
+      for (const t of loadout) {
+        assert.ok(scoreTowerPoints(t, n) <= TOWER_POINT_POOL);
+        if (n === 2) {
+          assert.equal(t.fireRate, 6);
+          assert.equal(t.buildDiscount, 0);
+          assert.equal(t.upgradeDiscount, 0);
+          assert.equal(t.buildCost.water, undefined);
+        } else {
+          assert.ok((t.buildCost.water ?? 0) > 0 || t.fireRate >= 1);
+        }
+      }
+    }
+
+    const rejected = parseLoadoutFile(
+      { version: 1, kind: "tdw-tower-loadout", towers: [] },
+      3,
+    );
+    assert.equal(rejected.ok, false);
   });
 
   it("buildTower uses loadout typeId and cost", () => {
@@ -287,7 +351,7 @@ describe("match combat", () => {
     match.players[0]!.bank = {
       stone: sniper!.buildCost.stone ?? 0,
       power: sniper!.buildCost.power ?? 0,
-      water: 10,
+      water: sniper!.buildCost.water ?? 0,
     };
     const r = intentBuildTower(match, "p1", pad!.cellId, "sniper");
     assert.equal(r.ok, true, r.error);

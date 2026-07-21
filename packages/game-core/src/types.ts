@@ -11,6 +11,9 @@ export interface TowerDef {
   id: string;
   power: number;
   range: number;
+  fireRate: number;
+  buildDiscount: number;
+  upgradeDiscount: number;
   aoeSize: number;
   aoeFade: number;
   jump: number;

@@ -70,8 +70,12 @@ export type {
 } from "./sim/match.js";
 export {
   TOWER_POINT_POOL,
+  BASELINE_FIRE_RATE,
   scoreTowerPoints,
   scoreTowerPointsRaw,
+  deriveTowerCosts,
+  normalizeTowerForResources,
+  towerCooldownTicks,
   validateTowerDef,
   validateLoadout,
   defaultTowerLoadout,
@@ -79,4 +83,4 @@ export {
   parseLoadoutFile,
   loadoutFileFromTowers,
 } from "./towers/loadout.js";
-export type { ValidationResult, LoadoutFileV1 } from "./towers/loadout.js";
+export type { ValidationResult, LoadoutFileV2 } from "./towers/loadout.js";

@@ -1,6 +1,7 @@
 import type { ResourceMap, TowerDef } from "../types.js";
 
 export const TOWER_POINT_POOL = 100;
+export const BASELINE_FIRE_RATE = 6;
 
 export type ValidationResult =
   | { ok: true }
@@ -10,44 +11,101 @@ function num(v: unknown, fallback = 0): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
 }
 
-function resourceTotal(cost: ResourceMap | undefined): number {
-  if (!cost) return 0;
-  return (cost.stone ?? 0) + (cost.power ?? 0);
+export function towerCooldownTicks(fireRate: number): number {
+  return Math.max(1, 11 - fireRate);
 }
 
-/** Point spend for a tower (design formula v1), before rounding. */
-export function scoreTowerPointsRaw(def: TowerDef): number {
-  const buildTotal = resourceTotal(def.buildCost);
-  const upgradeTotal = resourceTotal(def.upgradeCost);
-  return (
-    def.power * 5 +
-    def.range * 15 +
-    Math.max(0, 150 - buildTotal) * 0.15 +
-    Math.max(0, 100 - upgradeTotal) * 0.1
-  );
+export function scoreTowerPointsRaw(
+  def: TowerDef,
+  resourceCount: number,
+): number {
+  let s = def.power * 5 + def.range * 15;
+  if (resourceCount >= 3) {
+    s +=
+      def.fireRate * 8 +
+      def.buildDiscount * 10 +
+      def.upgradeDiscount * 25;
+  }
+  return s;
 }
 
-/** Point spend for a tower (design formula v1). */
-export function scoreTowerPoints(def: TowerDef): number {
-  return Math.round(scoreTowerPointsRaw(def));
+export function scoreTowerPoints(
+  def: TowerDef,
+  resourceCount: number,
+): number {
+  return Math.round(scoreTowerPointsRaw(def, resourceCount));
 }
 
-export function validateTowerDef(def: TowerDef): ValidationResult {
+export function deriveTowerCosts(
+  def: TowerDef,
+  resourceCount: number,
+): {
+  buildCost: ResourceMap;
+  upgradeCost: ResourceMap;
+} {
+  const buildCost: ResourceMap = {
+    stone: Math.round(20 + def.range * 12),
+    power: Math.round(20 + def.power * 4),
+  };
+  const upgradeCost: ResourceMap = {
+    stone: Math.round(12 + def.range * 6),
+    power: Math.round(12 + def.power * 2),
+  };
+  if (resourceCount >= 3) {
+    buildCost.water = Math.round(10 + def.fireRate * 5);
+    upgradeCost.water = Math.round(6 + def.fireRate * 3);
+  }
+  const apply = (cost: ResourceMap, steps: number): ResourceMap => {
+    const out: ResourceMap = {};
+    for (const [k, v] of Object.entries(cost)) {
+      out[k] = Math.max(1, Math.ceil(v * (1 - steps * 0.05)));
+    }
+    return out;
+  };
+  return {
+    buildCost: apply(buildCost, def.buildDiscount),
+    upgradeCost: apply(upgradeCost, def.upgradeDiscount),
+  };
+}
+
+export function normalizeTowerForResources(
+  def: TowerDef,
+  resourceCount: number,
+): TowerDef {
+  const next = structuredClone(def);
+  if (resourceCount < 3) {
+    next.fireRate = BASELINE_FIRE_RATE;
+    next.buildDiscount = 0;
+    next.upgradeDiscount = 0;
+  }
+  const costs = deriveTowerCosts(next, resourceCount);
+  next.buildCost = costs.buildCost;
+  next.upgradeCost = costs.upgradeCost;
+  return next;
+}
+
+export function validateTowerDef(
+  def: TowerDef,
+  resourceCount: number,
+): ValidationResult {
   const errors: string[] = [];
   if (!def?.id || typeof def.id !== "string") {
     errors.push("tower id required");
   }
-  if (def.power < 1 || def.power > 40) {
-    errors.push(`${def.id}: power must be 1–40`);
+  if (def.power < 1 || def.power > 20) {
+    errors.push(`${def.id}: power must be 1–20`);
   }
   if (def.range < 1 || def.range > 6) {
     errors.push(`${def.id}: range must be 1–6`);
   }
-  for (const [k, v] of Object.entries(def.buildCost ?? {})) {
-    if (v < 0 || v > 200) errors.push(`${def.id}: buildCost.${k} out of range`);
+  if (def.fireRate < 1 || def.fireRate > 10) {
+    errors.push(`${def.id}: fireRate must be 1–10`);
   }
-  for (const [k, v] of Object.entries(def.upgradeCost ?? {})) {
-    if (v < 0 || v > 200) errors.push(`${def.id}: upgradeCost.${k} out of range`);
+  if (def.buildDiscount < 0 || def.buildDiscount > 10) {
+    errors.push(`${def.id}: buildDiscount must be 0–10`);
+  }
+  if (def.upgradeDiscount < 0 || def.upgradeDiscount > 8) {
+    errors.push(`${def.id}: upgradeDiscount must be 0–8`);
   }
   if (
     def.upgradeLevelIncrease < 1 ||
@@ -61,7 +119,6 @@ export function validateTowerDef(def: TowerDef): ValidationResult {
       errors.push(`${def.id}: upgradeStatIncrease.${key} must be 0–0.5`);
     }
   }
-  // Inert combat fields must stay at 0 this phase
   for (const key of [
     "aoeSize",
     "aoeFade",
@@ -74,7 +131,8 @@ export function validateTowerDef(def: TowerDef): ValidationResult {
       errors.push(`${def.id}: ${key} must be 0 this phase`);
     }
   }
-  const spent = scoreTowerPoints(def);
+  const normalized = normalizeTowerForResources(def, resourceCount);
+  const spent = scoreTowerPoints(normalized, resourceCount);
   if (spent > TOWER_POINT_POOL) {
     errors.push(
       `${def.id}: ${spent} points exceeds pool of ${TOWER_POINT_POOL}`,
@@ -83,7 +141,10 @@ export function validateTowerDef(def: TowerDef): ValidationResult {
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 
-export function validateLoadout(towers: TowerDef[]): ValidationResult {
+export function validateLoadout(
+  towers: TowerDef[],
+  resourceCount: number,
+): ValidationResult {
   if (!Array.isArray(towers)) {
     return { ok: false, errors: ["loadout must be an array"] };
   }
@@ -95,16 +156,19 @@ export function validateLoadout(towers: TowerDef[]): ValidationResult {
   for (const t of towers) {
     if (seen.has(t.id)) errors.push(`duplicate tower id: ${t.id}`);
     seen.add(t.id);
-    const r = validateTowerDef(t);
+    const r = validateTowerDef(t, resourceCount);
     if (!r.ok) errors.push(...r.errors);
   }
   return errors.length ? { ok: false, errors } : { ok: true };
 }
 
 function baseTower(
-  partial: Partial<TowerDef> & Pick<TowerDef, "id" | "power" | "range" | "buildCost" | "upgradeCost">,
+  partial: Partial<TowerDef> & Pick<TowerDef, "id" | "power" | "range">,
 ): TowerDef {
   return {
+    fireRate: BASELINE_FIRE_RATE,
+    buildDiscount: 0,
+    upgradeDiscount: 0,
     aoeSize: 0,
     aoeFade: 0,
     jump: 0,
@@ -112,6 +176,8 @@ function baseTower(
     slowPower: 0,
     shotGivesPercent: 0,
     shootCost: {},
+    buildCost: {},
+    upgradeCost: {},
     upgradeStatIncrease: { power: 0.15, range: 0.1 },
     upgradeLevelIncrease: 1.35,
     friendlyFireDefault: false,
@@ -119,52 +185,45 @@ function baseTower(
   };
 }
 
-/** Default trio — each spends ≤ 100 points. */
-export function defaultTowerLoadout(): TowerDef[] {
-  return [
-    baseTower({
-      id: "basic",
-      power: 12,
-      range: 2,
-      buildCost: { stone: 70, power: 55 },
-      upgradeCost: { stone: 40, power: 30 },
-    }),
+/** Default trio — each spends ≤ 100 points for the given resource mode. */
+export function defaultTowerLoadout(resourceCount: number): TowerDef[] {
+  const roles = [
+    baseTower({ id: "basic", power: 12, range: 2, fireRate: 1 }),
     baseTower({
       id: "sniper",
-      power: 8,
+      power: 6,
       range: 4,
-      buildCost: { stone: 80, power: 70 },
-      upgradeCost: { stone: 50, power: 50 },
+      fireRate: 1,
       upgradeStatIncrease: { power: 0.12, range: 0.08 },
     }),
     baseTower({
       id: "mortar",
-      power: 16,
+      power: 15,
       range: 1,
-      buildCost: { stone: 85, power: 65 },
-      upgradeCost: { stone: 55, power: 45 },
+      fireRate: 1,
       upgradeStatIncrease: { power: 0.2, range: 0.05 },
     }),
   ];
+  return roles.map((t) => normalizeTowerForResources(t, resourceCount));
 }
 
-export function blankTower(id: string): TowerDef {
-  return baseTower({
-    id,
-    power: 8,
-    range: 2,
-    buildCost: { stone: 70, power: 55 },
-    upgradeCost: { stone: 40, power: 30 },
-  });
+export function blankTower(id: string, resourceCount = 3): TowerDef {
+  return normalizeTowerForResources(
+    baseTower({ id, power: 8, range: 2, fireRate: 4 }),
+    resourceCount,
+  );
 }
 
-export interface LoadoutFileV1 {
-  version: 1;
+export interface LoadoutFileV2 {
+  version: 2;
   kind: "tdw-tower-loadout";
   towers: TowerDef[];
 }
 
-export function parseLoadoutFile(raw: unknown): ValidationResult & {
+export function parseLoadoutFile(
+  raw: unknown,
+  resourceCount: number,
+): ValidationResult & {
   towers?: TowerDef[];
 } {
   if (!raw || typeof raw !== "object") {
@@ -174,18 +233,20 @@ export function parseLoadoutFile(raw: unknown): ValidationResult & {
   if (obj.kind !== "tdw-tower-loadout") {
     return { ok: false, errors: ["kind must be tdw-tower-loadout"] };
   }
-  if (obj.version !== 1) {
+  if (obj.version !== 2) {
     return { ok: false, errors: ["unsupported version"] };
   }
   if (!Array.isArray(obj.towers)) {
     return { ok: false, errors: ["towers array required"] };
   }
-  const towers = obj.towers as TowerDef[];
-  const v = validateLoadout(towers);
+  const towers = (obj.towers as TowerDef[]).map((t) =>
+    normalizeTowerForResources(t, resourceCount),
+  );
+  const v = validateLoadout(towers, resourceCount);
   if (!v.ok) return v;
   return { ok: true, towers };
 }
 
-export function loadoutFileFromTowers(towers: TowerDef[]): LoadoutFileV1 {
-  return { version: 1, kind: "tdw-tower-loadout", towers };
+export function loadoutFileFromTowers(towers: TowerDef[]): LoadoutFileV2 {
+  return { version: 2, kind: "tdw-tower-loadout", towers };
 }

@@ -159,13 +159,14 @@ export interface CreateMatchInput {
 
 function resolveSeatLoadout(
   seat: CreateMatchInput["seats"][number],
+  resourceCount: number,
 ): TowerDef[] {
-  if (seat.isAi) return defaultTowerLoadout();
+  if (seat.isAi) return defaultTowerLoadout(resourceCount);
   if (seat.loadout?.length) {
-    const v = validateLoadout(seat.loadout);
+    const v = validateLoadout(seat.loadout, resourceCount);
     if (v.ok) return seat.loadout.map((t) => structuredClone(t));
   }
-  return defaultTowerLoadout();
+  return defaultTowerLoadout(resourceCount);
 }
 
 export function createMatch(input: CreateMatchInput): MatchState {
@@ -219,7 +220,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
       bodLevels,
       assignCounts: Object.fromEntries(others.map((o) => [o, 0])),
       alive: true,
-      loadout: resolveSeatLoadout(s),
+      loadout: resolveSeatLoadout(s, settings.resourceCount),
     };
   });
 
