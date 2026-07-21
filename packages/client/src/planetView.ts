@@ -787,7 +787,7 @@ export class PlanetView {
     return g;
   }
 
-  /** Create/update bod meshes; motion is smoothed in render() without snapshot rewind */
+  /** Create/update bod meshes; motion predicted smoothly in render() */
   private syncBods(data: PlanetViewData): void {
     this.lastBodData = data;
     const ownerColor = new Map<string, string>();
@@ -798,22 +798,31 @@ export class PlanetView {
 
     for (const b of data.bods) {
       seen.add(b.id);
-      const idx = b.pathIndex ?? 0;
+      const serverIdx = b.pathIndex ?? 0;
       const serverCd = b.moveCooldown ?? 0;
-      const prevIdx = this.localBodPathIndex.get(b.id);
-      if (prevIdx === undefined || prevIdx !== idx) {
-        // New edge (or new bod): adopt server timing
-        this.localCooldownRemain.set(b.id, serverCd);
-        this.localBodPathIndex.set(b.id, idx);
-      } else {
-        const local = this.localCooldownRemain.get(b.id);
-        if (local === undefined) {
-          this.localCooldownRemain.set(b.id, serverCd);
-        } else {
-          // Never rewind — local may be ahead of the 10Hz snapshot
-          this.localCooldownRemain.set(b.id, Math.min(local, serverCd));
+      let localIdx = this.localBodPathIndex.get(b.id);
+      let localCd = this.localCooldownRemain.get(b.id);
+
+      if (localIdx === undefined || localCd === undefined) {
+        localIdx = serverIdx;
+        localCd = serverCd;
+      } else if (serverIdx > localIdx) {
+        // Server moved further along the path — catch up
+        localIdx = serverIdx;
+        localCd = serverCd;
+      } else if (serverIdx < localIdx) {
+        // Local prediction ahead of snapshot — allow 1 hop lead, else resync
+        if (localIdx - serverIdx > 1) {
+          localIdx = serverIdx;
+          localCd = serverCd;
         }
+      } else {
+        // Same hop: never rewind progress (lower cd = further along)
+        localCd = Math.min(localCd, serverCd);
       }
+
+      this.localBodPathIndex.set(b.id, localIdx);
+      this.localCooldownRemain.set(b.id, localCd);
 
       let mesh = this.bodGroup.children.find(
         (c) => c.userData.bodId === b.id,
@@ -851,10 +860,11 @@ export class PlanetView {
     b: PlanetViewData["bods"][number],
     cellMap: Map<number, CellView>,
     period: number,
+    pathIndex: number,
     cooldown: number,
   ): void {
     const path = b.path ?? [b.cellId];
-    const idx = b.pathIndex ?? 0;
+    const idx = Math.max(0, Math.min(pathIndex, path.length - 1));
     const fromId = path[idx] ?? b.cellId;
     const toId = path[idx + 1] ?? fromId;
     const from = cellMap.get(fromId);
@@ -896,9 +906,10 @@ export class PlanetView {
       }
     }
 
-    // Smooth bod travel between server snapshots (~10Hz)
+    // Predict bod hops locally so they don't freeze at nodes waiting for 10Hz snaps
     if (this.lastBodData) {
       const period = Math.max(1, this.lastBodData.bodMoveEveryTicks ?? 10);
+      const endPause = Math.max(3, Math.floor(period / 2));
       const tickHz = 10;
       const cellMap = new Map(this.lastBodData.cells.map((c) => [c.id, c]));
       for (const b of this.lastBodData.bods) {
@@ -906,13 +917,22 @@ export class PlanetView {
           (c) => c.userData.bodId === b.id,
         ) as THREE.Mesh | undefined;
         if (!mesh) continue;
-        let remain = this.localCooldownRemain.get(b.id);
-        if (remain === undefined) remain = b.moveCooldown ?? 0;
-        if ((b.pathIndex ?? 0) < (b.path?.length ?? 1) - 1) {
-          remain = Math.max(0, remain - dt * tickHz);
-          this.localCooldownRemain.set(b.id, remain);
+        const path = b.path ?? [b.cellId];
+        let idx = this.localBodPathIndex.get(b.id) ?? b.pathIndex ?? 0;
+        let remain =
+          this.localCooldownRemain.get(b.id) ?? b.moveCooldown ?? period;
+
+        remain -= dt * tickHz;
+        // Chain into the next hop immediately (no pause at the node)
+        while (remain <= 0 && idx < path.length - 1) {
+          idx += 1;
+          remain += idx < path.length - 1 ? period : endPause;
         }
-        this.placeBodMesh(mesh, b, cellMap, period, remain);
+        if (remain < 0) remain = 0;
+
+        this.localBodPathIndex.set(b.id, idx);
+        this.localCooldownRemain.set(b.id, remain);
+        this.placeBodMesh(mesh, b, cellMap, period, idx, remain);
       }
     }
 
