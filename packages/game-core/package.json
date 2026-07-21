@@ -12,7 +12,7 @@
   },
   "files": ["dist", "config"],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node ../../node_modules/typescript/lib/tsc.js -p tsconfig.json",
     "test": "npm run build && node --test dist/index.test.js",
     "clean": "rimraf dist"
   },

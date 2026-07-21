@@ -8,15 +8,36 @@
 
 ## Build on the server
 
+Do **not** copy `node_modules` from Windows. Install and build on Linux:
+
 ```bash
-cd /path/to/towerdefenceworld
+cd /var/www/html/towerdefenceworld   # or your clone path
+git pull
+rm -rf node_modules packages/*/node_modules
 npm install
 npm run build -w @tdw/game-core
 npm run build -w @tdw/server
 npm run build -w @tdw/client
 ```
 
-Copy `packages/client/dist/*` to your web root.
+Copy `packages/client/dist/*` to your web DocumentRoot (if different from the repo).
+
+### Troubleshooting: `tsc: Permission denied` (exit 127)
+
+Almost always means the npm bin shims are not executable — common if `node_modules` was uploaded from Windows, or the disk is mounted `noexec`.
+
+**Fix (preferred):** delete and reinstall on the server:
+
+```bash
+cd /var/www/html/towerdefenceworld
+rm -rf node_modules packages/*/node_modules
+npm install
+npm run build -w @tdw/game-core
+```
+
+**Quick check:** `mount | grep "$(df -P . | tail -1 | awk '{print $1}')"` — if you see `noexec`, Node lives on a bad mount; move the project or remount with `exec`.
+
+Build scripts invoke TypeScript via `node …/typescript/lib/tsc.js` so they do not rely on `node_modules/.bin/tsc` being `+x`.
 
 ## Run Node (systemd example)
 
