@@ -46,6 +46,33 @@ describe("goldberg planet", () => {
       }
     }
   });
+
+  it("places 2 bases nearly antipodal and 4 well separated", () => {
+    const two = buildPlanet("small", 2);
+    assert.equal(two.baseCellIds.length, 2);
+    const a = two.cells[two.baseCellIds[0]!]!.center;
+    const b = two.cells[two.baseCellIds[1]!]!.center;
+    const dot =
+      (a.x * b.x + a.y * b.y + a.z * b.z) /
+      (Math.hypot(a.x, a.y, a.z) * Math.hypot(b.x, b.y, b.z));
+    assert.ok(dot < -0.85, `expected near-opposite bases, dot=${dot}`);
+
+    const four = buildPlanet("medium", 4);
+    assert.equal(four.baseCellIds.length, 4);
+    let minDot = 1;
+    for (let i = 0; i < 4; i++) {
+      for (let j = i + 1; j < 4; j++) {
+        const p = four.cells[four.baseCellIds[i]!]!.center;
+        const q = four.cells[four.baseCellIds[j]!]!.center;
+        const d =
+          (p.x * q.x + p.y * q.y + p.z * q.z) /
+          (Math.hypot(p.x, p.y, p.z) * Math.hypot(q.x, q.y, q.z));
+        if (d < minDot) minDot = d;
+      }
+    }
+    // Regular tetrahedron cos⁻¹(1/3) ≈ 109.5° → dot ≈ -1/3
+    assert.ok(minDot < -0.15, `expected tetrahedral spread, minDot=${minDot}`);
+  });
 });
 
 describe("placement", () => {

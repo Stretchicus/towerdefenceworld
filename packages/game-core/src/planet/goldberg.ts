@@ -255,37 +255,66 @@ function angleInPlane(
 
 function pickBaseCells(cells: PlanetCell[], seatCount: number): number[] {
   const n = Math.max(2, Math.min(4, seatCount));
-  // Bases sit on pentagons only (12 available on a Goldberg sphere)
+  // Bases sit on pentagons only (12 on a Goldberg sphere)
   const pool = cells.filter((c) => c.sides === 5);
   const from = pool.length >= n ? pool : cells;
-  const start = from.reduce(
-    (best, c) => (c.center.y > best.center.y ? c : best),
-    from[0]!,
-  );
-  const picked: number[] = [start.id];
-  while (picked.length < n) {
-    let bestId = -1;
-    let bestMin = -1;
-    for (const c of from) {
-      if (picked.includes(c.id)) continue;
-      let minD = Infinity;
-      for (const pid of picked) {
-        const d = dist(c.center, cells[pid]!.center);
+  if (from.length <= n) return from.map((c) => c.id);
+
+  // Brute-force: maximise the minimum angular separation (and sum as tie-break).
+  // With 12 pentagons this is tiny (C(12,4)=495) and gives true antipodes / tetrahedral spread.
+  const ids = from.map((c) => c.id);
+  let best: number[] = [];
+  let bestMin = -1;
+  let bestSum = -1;
+
+  const scoreChosen = (chosen: number[]) => {
+    let minD = Infinity;
+    let sum = 0;
+    for (let i = 0; i < chosen.length; i++) {
+      for (let j = i + 1; j < chosen.length; j++) {
+        const d = angularDist(
+          cells[chosen[i]!]!.center,
+          cells[chosen[j]!]!.center,
+        );
         if (d < minD) minD = d;
-      }
-      if (minD > bestMin) {
-        bestMin = minD;
-        bestId = c.id;
+        sum += d;
       }
     }
-    if (bestId < 0) break;
-    picked.push(bestId);
-  }
-  return picked;
+    if (
+      minD > bestMin + 1e-9 ||
+      (Math.abs(minD - bestMin) < 1e-9 && sum > bestSum)
+    ) {
+      bestMin = minD;
+      bestSum = sum;
+      best = [...chosen];
+    }
+  };
+
+  const choose = (start: number, chosen: number[]) => {
+    if (chosen.length === n) {
+      scoreChosen(chosen);
+      return;
+    }
+    const need = n - chosen.length;
+    for (let i = start; i <= ids.length - need; i++) {
+      chosen.push(ids[i]!);
+      choose(i + 1, chosen);
+      chosen.pop();
+    }
+  };
+  choose(0, []);
+  return best.length === n ? best : ids.slice(0, n);
 }
 
-function dist(a: Vec3, b: Vec3): number {
-  return len(sub(a, b));
+/** Great-circle angle between unit-ish sphere points */
+function angularDist(a: Vec3, b: Vec3): number {
+  const na = normalize(a);
+  const nb = normalize(b);
+  const d = Math.max(
+    -1,
+    Math.min(1, na.x * nb.x + na.y * nb.y + na.z * nb.z),
+  );
+  return Math.acos(d);
 }
 
 export function cellById(planet: Planet, id: number): PlanetCell {
