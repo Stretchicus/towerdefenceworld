@@ -18,6 +18,13 @@ npm test
 npm run dev
 ```
 
+On the **server**, after cloning:
+
+```bash
+chmod +x deploy.sh
+sudo ./deploy.sh
+```
+
 - Client: http://localhost:5173  
 - Server / WS: http://localhost:3101 (proxied from Vite in dev)
 

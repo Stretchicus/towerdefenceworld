@@ -12,6 +12,22 @@ Header shows **build `v0.1.3`** (or newer). If you do not see that version strin
 
 ## Correct deploy (use this)
 
+### One-shot script (recommended)
+
+```bash
+cd /var/www/html/towerdefenceworld
+chmod +x deploy.sh   # once
+sudo ./deploy.sh
+```
+
+Pulls `main`, installs, builds core/server/client, restarts `tdw`, checks `/health`.
+
+If Apache DocumentRoot is **not** `packages/client/dist`:
+
+```bash
+sudo DEPLOY_WEB_ROOT=/var/www/html ./deploy.sh
+```
+
 Do **not** copy only `packages/` from Windows. That skips root workspace files and often leaves you building/serving a mix of old and new code.
 
 ### 1. Full repo on the server via git
