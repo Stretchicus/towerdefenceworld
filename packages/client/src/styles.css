@@ -94,8 +94,8 @@ header.top {
 }
 
 .swatch.route {
-  background: #e8c45a;
-  box-shadow: 0 0 6px #e8c45a;
+  background: #5a6a58;
+  box-shadow: none;
 }
 
 .swatch.base {

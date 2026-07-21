@@ -62,6 +62,8 @@ export interface GameConfig {
   mineChance: number;
   baseContactDamage: number;
   tickRateHz: number;
+  /** Combat ticks between each bod step along the route (higher = slower) */
+  bodMoveEveryTicks: number;
   timedMatchSeconds: number;
   towers: Record<string, TowerDef>;
   mines: Record<string, MineDef>;

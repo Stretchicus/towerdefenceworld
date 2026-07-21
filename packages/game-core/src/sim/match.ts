@@ -78,6 +78,8 @@ export interface BodInstance {
   cellId: number;
   path: number[];
   pathIndex: number;
+  /** Ticks until next cell step */
+  moveCooldown: number;
   held: ResourceMap;
   targetPlayerId: string;
   buildRemaining: number;
@@ -655,6 +657,7 @@ export function tickMatch(state: MatchState): void {
       cellId: start,
       path,
       pathIndex: 0,
+      moveCooldown: state.config.bodMoveEveryTicks,
       held: {},
       targetPlayerId: targetId,
       buildRemaining: 0,
@@ -690,29 +693,23 @@ export function tickMatch(state: MatchState): void {
     const st = bodStats(state, bodOwner, best.typeId);
     const dmg = power * (1 - st.resistance);
     best.hp -= dmg;
-    tower.cooldown = 2;
+    tower.cooldown = 5;
     if (best.hp <= 0) {
       killBod(state, best, tower.ownerId);
     }
   }
 
-  // Move bods + mines + base contact
+  // Move bods gradually (one cell every bodMoveEveryTicks)
   for (const bod of [...state.bods]) {
-    if (bod.pathIndex < bod.path.length - 1) {
+    let stepped = false;
+    if (bod.moveCooldown > 0) {
+      bod.moveCooldown--;
+    } else if (bod.pathIndex < bod.path.length - 1) {
       bod.pathIndex++;
       bod.cellId = bod.path[bod.pathIndex]!;
-    }
-
-    const mine = state.mines.find((m) => m.cellId === bod.cellId);
-    if (mine) {
-      addResources(bod.held, mineGenerated(state, mine), 1);
-    }
-
-    // Reached end of path → if enemy base cell, damage
-    const atGoal =
-      bod.pathIndex >= bod.path.length - 1 &&
-      bod.cellId === baseCell(state, bod.targetPlayerId);
-    if (atGoal) {
+      bod.moveCooldown = state.config.bodMoveEveryTicks;
+      stepped = true;
+    } else if (bod.cellId === baseCell(state, bod.targetPlayerId)) {
       const target = state.players.find((p) => p.id === bod.targetPlayerId);
       const owner = state.players.find((p) => p.id === bod.ownerId);
       if (target && owner && target.teamId !== owner.teamId && target.alive) {
@@ -723,6 +720,12 @@ export function tickMatch(state: MatchState): void {
         }
       }
       killBod(state, bod, null);
+      continue;
+    }
+
+    if (stepped) {
+      const mine = state.mines.find((m) => m.cellId === bod.cellId);
+      if (mine) addResources(bod.held, mineGenerated(state, mine), 1);
     }
   }
 

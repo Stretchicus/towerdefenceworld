@@ -123,6 +123,7 @@ describe("match combat", () => {
       cellId: arena,
       path: [arena, match.planet.baseCellIds[1]!],
       pathIndex: 0,
+      moveCooldown: 0,
       held: { stone: 100 },
       targetPlayerId: "p1",
       buildRemaining: 0,

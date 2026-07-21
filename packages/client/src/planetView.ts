@@ -280,9 +280,9 @@ export class PlanetView {
       let emissive = 0x000000;
       let emissiveIntensity = 0;
       if (routeIds.has(cell.id)) {
-        color = 0xe8c45a;
-        emissive = 0xa07820;
-        emissiveIntensity = 0.35;
+        color = 0x2a3840;
+        emissive = 0x1a2828;
+        emissiveIntensity = 0.12;
       }
       if (baseSet.has(cell.id)) {
         color = 0xff7a3d;
@@ -336,14 +336,14 @@ export class PlanetView {
             color: legalSet.has(cell.id)
               ? 0xa8ffd0
               : routeIds.has(cell.id)
-                ? 0xfff3a0
+                ? 0x4a5a50
                 : 0x3dd6c6,
             transparent: true,
             opacity: legalSet.has(cell.id)
               ? 1
               : routeIds.has(cell.id)
-                ? 0.9
-                : 0.2,
+                ? 0.35
+                : 0.15,
           }),
         ),
       );
@@ -407,13 +407,15 @@ export class PlanetView {
 
         const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
         const tube = new THREE.Mesh(
-          new THREE.TubeGeometry(curve, 8, 0.028, 6, false),
+          new THREE.TubeGeometry(curve, 8, 0.01, 5, false),
           new THREE.MeshStandardMaterial({
-            color: 0xffe566,
-            emissive: 0xffcc33,
-            emissiveIntensity: 0.85,
-            metalness: 0.2,
-            roughness: 0.35,
+            color: 0x5a6a58,
+            emissive: 0x2a3a28,
+            emissiveIntensity: 0.12,
+            metalness: 0.05,
+            roughness: 0.85,
+            transparent: true,
+            opacity: 0.55,
           }),
         );
         this.pathGroup.add(tube);

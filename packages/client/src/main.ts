@@ -58,7 +58,7 @@ interface MatchState {
   bods: { cellId: number; ownerId: string }[];
 }
 
-const CLIENT_BUILD = "v0.1.5";
+const CLIENT_BUILD = "v0.1.6";
 const TOWER_COST = { stone: 25, power: 10 };
 
 const app = document.getElementById("app")!;

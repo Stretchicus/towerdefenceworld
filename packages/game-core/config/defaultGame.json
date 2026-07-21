@@ -20,6 +20,7 @@
   "mineChance": 0.2,
   "baseContactDamage": 8,
   "tickRateHz": 10,
+  "bodMoveEveryTicks": 14,
   "timedMatchSeconds": 300,
   "towers": {
     "basic": {
@@ -56,7 +57,7 @@
       "resistance": 0.05,
       "resourcesToBuild": { "stone": 8, "water": 4 },
       "resourcePercOnDeath": 0.6,
-      "buildTimeTicks": 15,
+      "buildTimeTicks": 40,
       "upgradeCost": { "stone": 12, "water": 8 },
       "upgradeLevelIncrease": 1.3,
       "upgradeStatIncrease": { "hp": 0.2, "resistance": 0.05 },
@@ -68,7 +69,7 @@
       "resistance": 0.15,
       "resourcesToBuild": { "stone": 20, "power": 10 },
       "resourcePercOnDeath": 0.5,
-      "buildTimeTicks": 30,
+      "buildTimeTicks": 70,
       "upgradeCost": { "stone": 25, "power": 15 },
       "upgradeLevelIncrease": 1.35,
       "upgradeStatIncrease": { "hp": 0.25 },
