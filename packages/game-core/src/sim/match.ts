@@ -848,7 +848,7 @@ export function runAiCombat(state: MatchState): void {
         break;
       }
     }
-    if (!built && (p.bank.stone ?? 0) > 100) {
+    if (!built && (p.bank.stone ?? 0) > 150) {
       intentUpgrade(state, p.id, { kind: "base", playerId: p.id });
     }
   }
@@ -919,6 +919,26 @@ export function serializeMatch(state: MatchState) {
     towers: state.towers,
     mines: state.mines,
     bodMoveEveryTicks: state.config.bodMoveEveryTicks,
+    costs: {
+      towerBuild: filterCostToResources(
+        state.config.towers.basic?.buildCost ?? {},
+        state.resources,
+      ),
+      towerUpgrade: filterCostToResources(
+        state.config.towers.basic?.upgradeCost ?? {},
+        state.resources,
+      ),
+      baseUpgrade: filterCostToResources(
+        state.config.base.upgradeCost,
+        state.resources,
+      ),
+      bods: Object.fromEntries(
+        Object.entries(state.config.bods).map(([id, def]) => [
+          id,
+          filterCostToResources(def.resourcesToBuild, state.resources),
+        ]),
+      ),
+    },
     bods: state.bods.map((b) => ({
       id: b.id,
       ownerId: b.ownerId,

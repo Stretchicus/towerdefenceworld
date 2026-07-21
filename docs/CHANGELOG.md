@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.10 — 2026-07-21
+
+### Changed
+
+- Towers cost ~one start bank (70 stone + 55 power); bods much cheaper
+- Cost chips on build/upgrade/bod actions; unaffordable actions greyed out
+- Routes as flat road ribbons on the hex surface; props sit on the grid
+- Camera orbit inertia; HUD/markers no longer fully rebuild every tick
+
+### Docs
+
+- Design: `docs/superpowers/specs/2026-07-21-economy-feel-roads-design.md`
+
 ## 0.1.3 — 2026-07-21
 
 ### Fixed

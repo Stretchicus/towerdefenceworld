@@ -134,6 +134,10 @@ header.top {
 .build-btn {
   text-align: left;
   font-size: 0.8rem;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
 }
 
 .build-btn.selected {
@@ -143,6 +147,60 @@ header.top {
 .build-btn:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  filter: none;
+}
+
+.build-btn:disabled:hover,
+button:disabled:hover {
+  filter: none;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.cost-row {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+}
+
+.cost-chip {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.1rem 0.35rem;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--muted);
+}
+
+.cost-chip.ok {
+  color: var(--accent);
+  border-color: rgba(61, 214, 198, 0.45);
+}
+
+.cost-chip.short {
+  color: var(--danger);
+  border-color: rgba(232, 93, 93, 0.45);
+}
+
+.chip.cant-afford {
+  opacity: 0.55;
+}
+
+.chip .cost-row {
+  display: block;
+  margin-top: 0.15rem;
+}
+
+#btn-upgrade-base {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
 }
 
 header.top h1 {

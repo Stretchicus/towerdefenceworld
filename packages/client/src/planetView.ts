@@ -53,11 +53,17 @@ export class PlanetView {
   private moved = false;
   private prevX = 0;
   private prevY = 0;
+  private velTheta = 0;
+  private velPhi = 0;
   private spherical = { theta: 0.4, phi: 0.9, radius: 4.2 };
   private selectedCell: number | null = null;
   private spin = true;
   private interactionMode: "placement" | "combat" | "other" = "other";
   private hoverCellId: number | null = null;
+  private markersKey = "";
+  private routesKey = "";
+  /** Gameplay sits on the hex surface — not the atmosphere shell */
+  private static readonly SURFACE = 1.012;
   onCellClick: ((cellId: number) => void) | null = null;
   onTileRotate: ((dir: 1 | -1) => void) | null = null;
   onHoverCell: ((cellId: number | null) => void) | null = null;
@@ -108,10 +114,13 @@ export class PlanetView {
       if (Math.abs(dx) + Math.abs(dy) > 4) this.moved = true;
       this.prevX = e.clientX;
       this.prevY = e.clientY;
-      this.spherical.theta -= dx * 0.005;
+      const sens = 0.005;
+      this.velTheta = -dx * sens * 60;
+      this.velPhi = dy * sens * 60;
+      this.spherical.theta -= dx * sens;
       this.spherical.phi = Math.min(
         Math.PI - 0.1,
-        Math.max(0.1, this.spherical.phi + dy * 0.005),
+        Math.max(0.1, this.spherical.phi + dy * sens),
       );
       this.updateCamera();
     });
@@ -379,16 +388,19 @@ export class PlanetView {
     );
     this.root.add(shell);
 
-    this.drawRoutes(data);
-    this.refreshMarkers(data);
+    this.markersKey = "";
+    this.routesKey = "";
+    this.refreshMarkers(data, true);
   }
 
-  /** Thick glowing arcs between connected route cells */
+  /** Flat road ribbons on the hex surface (not raised tubes) */
   private drawRoutes(data: PlanetViewData): void {
     this.clearGroup(this.pathGroup);
     const cellMap = new Map(data.cells.map((c) => [c.id, c]));
     const placedMap = new Map(data.placed.map((p) => [p.cellId, p]));
     const drawn = new Set<string>();
+    const R = PlanetView.SURFACE;
+    const halfW = 0.028;
 
     for (const placed of data.placed) {
       const cell = cellMap.get(placed.cellId);
@@ -413,35 +425,93 @@ export class PlanetView {
           cell.center.x,
           cell.center.y,
           cell.center.z,
-        ).multiplyScalar(1.04);
+        ).normalize();
         const b = new THREE.Vector3(
           nCell.center.x,
           nCell.center.y,
           nCell.center.z,
-        ).multiplyScalar(1.04);
-        const mid = a.clone().add(b).multiplyScalar(0.5).normalize().multiplyScalar(1.08);
+        ).normalize();
+        let side = new THREE.Vector3().crossVectors(a, b);
+        if (side.lengthSq() < 1e-10) {
+          side = new THREE.Vector3().crossVectors(a, new THREE.Vector3(0, 1, 0));
+        }
+        if (side.lengthSq() < 1e-10) {
+          side = new THREE.Vector3().crossVectors(a, new THREE.Vector3(1, 0, 0));
+        }
+        side.normalize().multiplyScalar(halfW);
 
-        const curve = new THREE.QuadraticBezierCurve3(a, mid, b);
-        const tube = new THREE.Mesh(
-          new THREE.TubeGeometry(curve, 8, 0.01, 5, false),
-          new THREE.MeshStandardMaterial({
-            color: 0x5a6a58,
-            emissive: 0x2a3a28,
-            emissiveIntensity: 0.12,
-            metalness: 0.05,
-            roughness: 0.85,
-            transparent: true,
-            opacity: 0.55,
-          }),
+        const a0 = a.clone().add(side).normalize().multiplyScalar(R);
+        const a1 = a.clone().sub(side).normalize().multiplyScalar(R);
+        const b0 = b.clone().add(side).normalize().multiplyScalar(R);
+        const b1 = b.clone().sub(side).normalize().multiplyScalar(R);
+
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute(
+          "position",
+          new THREE.Float32BufferAttribute(
+            [
+              a0.x, a0.y, a0.z,
+              a1.x, a1.y, a1.z,
+              b0.x, b0.y, b0.z,
+              a1.x, a1.y, a1.z,
+              b1.x, b1.y, b1.z,
+              b0.x, b0.y, b0.z,
+            ],
+            3,
+          ),
         );
-        this.pathGroup.add(tube);
+        geo.computeVertexNormals();
+        this.pathGroup.add(
+          new THREE.Mesh(
+            geo,
+            new THREE.MeshStandardMaterial({
+              color: 0x6a7a68,
+              emissive: 0x2a3428,
+              emissiveIntensity: 0.2,
+              metalness: 0.05,
+              roughness: 0.9,
+              side: THREE.DoubleSide,
+            }),
+          ),
+        );
       }
     }
   }
 
-  refreshMarkers(data: PlanetViewData): void {
+  private static markersFingerprint(data: PlanetViewData): string {
+    return [
+      data.towers.map((t) => `${t.cellId}:${t.ownerId}`).join(","),
+      data.mines.map((m) => m.cellId).join(","),
+      data.placed
+        .map((p) =>
+          `${p.cellId}:${p.tile.hasTowerPoint ? 1 : 0}:${p.tile.hasMine ? 1 : 0}`,
+        )
+        .join(","),
+      data.players.map((p) => `${p.id}:${p.baseCellId}:${p.alive}`).join(","),
+      data.myBaseCellId ?? "",
+    ].join("|");
+  }
+
+  private static routesFingerprint(data: PlanetViewData): string {
+    return data.placed
+      .map((p) => `${p.cellId}:${p.connections.map((c) => (c ? 1 : 0)).join("")}`)
+      .join(";");
+  }
+
+  refreshMarkers(data: PlanetViewData, force = false): void {
+    const routesKey = PlanetView.routesFingerprint(data);
+    if (force || routesKey !== this.routesKey) {
+      this.drawRoutes(data);
+      this.routesKey = routesKey;
+    }
+
+    const key = PlanetView.markersFingerprint(data);
+    if (!force && key === this.markersKey) {
+      this.syncBods(data);
+      return;
+    }
+    this.markersKey = key;
     this.clearGroup(this.markers);
-    this.drawRoutes(data);
 
     const cellMap = new Map(data.cells.map((c) => [c.id, c]));
     const ownerColor = new Map<string, string>();
@@ -450,6 +520,7 @@ export class PlanetView {
     });
     const towerCells = new Set(data.towers.map((t) => t.cellId));
     const mineCells = new Set(data.mines.map((m) => m.cellId));
+    const R = PlanetView.SURFACE;
 
     // Empty tower pads — bright cyan rings (clickable)
     for (const placed of data.placed) {
@@ -466,7 +537,8 @@ export class PlanetView {
       );
       ring.position
         .set(cell.center.x, cell.center.y, cell.center.z)
-        .multiplyScalar(1.055);
+        .normalize()
+        .multiplyScalar(R);
       ring.lookAt(0, 0, 0);
       ring.userData.cellId = placed.cellId;
       this.markers.add(ring);
@@ -501,7 +573,8 @@ export class PlanetView {
       );
       mesh.position
         .set(cell.center.x, cell.center.y, cell.center.z)
-        .multiplyScalar(1.05);
+        .normalize()
+        .multiplyScalar(R);
       mesh.userData.cellId = placed.cellId;
       this.markers.add(mesh);
     }
@@ -519,7 +592,8 @@ export class PlanetView {
       );
       mesh.position
         .set(cell.center.x, cell.center.y, cell.center.z)
-        .multiplyScalar(1.06);
+        .normalize()
+        .multiplyScalar(R);
       mesh.lookAt(0, 0, 0);
       mesh.rotateX(Math.PI / 2);
       mesh.userData.cellId = t.cellId;
@@ -535,7 +609,8 @@ export class PlanetView {
       );
       mesh.position
         .set(cell.center.x, cell.center.y, cell.center.z)
-        .multiplyScalar(1.045);
+        .normalize()
+        .multiplyScalar(R);
       mesh.userData.cellId = m.cellId;
       this.markers.add(mesh);
     }
@@ -546,7 +621,6 @@ export class PlanetView {
       const cell = cellMap.get(p.baseCellId);
       if (!cell) continue;
       const isMine = data.myBaseCellId === p.baseCellId;
-      // Castles: cream stone for you, team colour for others — never match plinth
       const color = isMine ? "#e8dcc8" : (ownerColor.get(p.id) ?? "#c4b8a8");
       const emissive = isMine ? "#8a7a50" : p.alive ? 0x221810 : 0x550000;
       const castle = this.makeCastle(color, emissive, isMine ? 0.45 : 0.25);
@@ -555,8 +629,7 @@ export class PlanetView {
         cell.center.y,
         cell.center.z,
       ).normalize();
-      // Sit on the pentagon surface (not floating in space)
-      castle.position.copy(outward).multiplyScalar(1.02);
+      castle.position.copy(outward).multiplyScalar(R);
       castle.scale.setScalar(0.85);
       castle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), outward);
       castle.userData.cellId = p.baseCellId;
@@ -574,7 +647,7 @@ export class PlanetView {
             emissiveIntensity: 0.55,
           }),
         );
-        ring.position.copy(outward).multiplyScalar(1.018);
+        ring.position.copy(outward).multiplyScalar(R * 0.998);
         ring.lookAt(0, 0, 0);
         ring.userData.cellId = p.baseCellId;
         this.markers.add(ring);
@@ -720,7 +793,7 @@ export class PlanetView {
     const y = ay + (by - ay) * t;
     const z = az + (bz - az) * t;
     const len = Math.hypot(x, y, z) || 1;
-    const s = 1.08;
+    const s = PlanetView.SURFACE;
     mesh.position.set((x / len) * s, (y / len) * s, (z / len) * s);
   }
 
@@ -728,6 +801,20 @@ export class PlanetView {
     const now = performance.now();
     const dt = Math.min(0.05, (now - this.lastFrameMs) / 1000);
     this.lastFrameMs = now;
+
+    if (!this.drag) {
+      this.spherical.theta += this.velTheta * dt;
+      this.spherical.phi = Math.min(
+        Math.PI - 0.1,
+        Math.max(0.1, this.spherical.phi + this.velPhi * dt),
+      );
+      const damp = Math.exp(-4.2 * dt);
+      this.velTheta *= damp;
+      this.velPhi *= damp;
+      if (Math.abs(this.velTheta) + Math.abs(this.velPhi) > 0.0005) {
+        this.updateCamera();
+      }
+    }
 
     // Smooth bod travel between server snapshots (~10Hz)
     if (this.lastBodData) {
@@ -749,7 +836,9 @@ export class PlanetView {
       }
     }
 
-    if (this.spin) this.root.rotation.y += 0.0005;
+    if (this.spin && !this.drag && Math.abs(this.velTheta) < 0.05) {
+      this.root.rotation.y += 0.0005;
+    }
     this.pathGroup.rotation.y = this.root.rotation.y;
     this.markers.rotation.y = this.root.rotation.y;
     this.bodGroup.rotation.y = this.root.rotation.y;

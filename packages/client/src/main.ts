@@ -65,10 +65,16 @@ interface MatchState {
   }[];
   corridorCellIds?: number[];
   bodMoveEveryTicks?: number;
+  costs?: {
+    towerBuild: Record<string, number>;
+    towerUpgrade: Record<string, number>;
+    baseUpgrade: Record<string, number>;
+    bods: Record<string, Record<string, number>>;
+  };
 }
 
-const CLIENT_BUILD = "v0.1.9";
-const TOWER_COST = { stone: 25, power: 10 };
+const CLIENT_BUILD = "v0.1.10";
+const FALLBACK_TOWER = { stone: 70, power: 55 };
 
 const app = document.getElementById("app")!;
 app.innerHTML = `
@@ -99,6 +105,7 @@ let lastLobby: LobbyState | null = null;
 let lastMatch: MatchState | null = null;
 let lastError = "";
 let planetBuiltFor = "";
+let hudShellKey = "";
 let selectedBuildCell: number | null = null;
 let placementRotation = 0;
 let hoverCellId: number | null = null;
@@ -131,6 +138,7 @@ function resetToMenu(): void {
   lastMatch = null;
   lastError = "";
   planetBuiltFor = "";
+  hudShellKey = "";
   selectedBuildCell = null;
   localStorage.removeItem("tdw_room");
   localStorage.removeItem("tdw_token");
@@ -150,11 +158,32 @@ function freeTowerPads(m: MatchState): number[] {
     .map((p) => p.cellId);
 }
 
-function canAffordTower(self: NonNullable<ReturnType<typeof me>>): boolean {
-  return (
-    (self.bank.stone ?? 0) >= TOWER_COST.stone &&
-    (self.bank.power ?? 0) >= TOWER_COST.power
-  );
+function matchCosts(m: MatchState) {
+  return {
+    towerBuild: m.costs?.towerBuild ?? FALLBACK_TOWER,
+    towerUpgrade: m.costs?.towerUpgrade ?? { stone: 40, power: 30 },
+    baseUpgrade: m.costs?.baseUpgrade ?? { stone: 40, power: 30 },
+    bods: m.costs?.bods ?? {
+      grunt: { stone: 4, water: 2 },
+      bruiser: { stone: 12, power: 6 },
+    },
+  };
+}
+
+function canAffordCost(
+  bank: Record<string, number>,
+  cost: Record<string, number>,
+): boolean {
+  return Object.entries(cost).every(([k, v]) => (bank[k] ?? 0) >= v);
+}
+
+function costChipsHtml(cost: Record<string, number>, afford: boolean): string {
+  return Object.entries(cost)
+    .map(
+      ([k, v]) =>
+        `<span class="cost-chip ${afford ? "ok" : "short"}">${k} ${v}</span>`,
+    )
+    .join("");
 }
 
 function tilePreviewSvg(
@@ -368,154 +397,7 @@ function renderLobby(): void {
   });
 }
 
-function renderMatch(): void {
-  const m = lastMatch!;
-  planet.setSpin(m.phase === "placement");
-  updateLeaveBtn();
-  const self = me();
-  const bank = self
-    ? Object.entries(self.bank)
-        .map(([k, v]) => `<span class="chip">${k}: ${v.toFixed(1)}</span>`)
-        .join("")
-    : "";
-
-  const targets = self
-    ? Object.entries(self.targetEnabled)
-        .map(
-          ([id, on]) =>
-            `<button class="chip ${on ? "on" : "off"}" data-target="${id}">${m.players.find((p) => p.id === id)?.name ?? id}</button>`,
-        )
-        .join("")
-    : "";
-
-  const bods = self
-    ? Object.entries(self.bodEnabled)
-        .map(
-          ([id, on]) =>
-            `<button class="chip ${on ? "on" : "off"}" data-bod="${id}">${id}</button>`,
-        )
-        .join("")
-    : "";
-
-  const pads = freeTowerPads(m);
-  const afford = self ? canAffordTower(self) : false;
-  const myTowers = m.towers.filter((t) => t.ownerId === playerId);
-
-  const buildList =
-    m.phase === "combat"
-      ? `<h2>BUILD TOWER</h2>
-      <p class="hint">Cost: ${TOWER_COST.stone} stone + ${TOWER_COST.power} power</p>
-      <p class="hint">Cyan rings on the planet = empty tower pads. Click a ring or a button below.</p>
-      <div class="build-list">
-        ${
-          pads.length === 0
-            ? `<p class="hint">No free pads left.</p>`
-            : pads
-                .slice(0, 12)
-                .map(
-                  (cellId) =>
-                    `<button class="build-btn ${selectedBuildCell === cellId ? "selected" : ""}" data-build="${cellId}" ${afford ? "" : "disabled"}>
-                      Pad #${cellId}${afford ? "" : " (need resources)"}
-                    </button>`,
-                )
-                .join("") +
-              (pads.length > 12
-                ? `<p class="hint">+${pads.length - 12} more on map</p>`
-                : "")
-        }
-      </div>
-      <h2>YOUR TOWERS (${myTowers.length})</h2>
-      <div class="build-list">
-        ${
-          myTowers.length === 0
-            ? `<p class="hint">None yet.</p>`
-            : myTowers
-                .map(
-                  (t) =>
-                    `<button class="secondary build-btn" data-up-tower="${t.id}">Upgrade #${t.cellId}</button>`,
-                )
-                .join("")
-        }
-      </div>`
-      : `<p class="hint">Gold tubes = routes. Orange cells = bases.</p>`;
-
-  const turnPlayer = m.players[m.currentSeat];
-  const myTurn =
-    m.phase === "placement" &&
-    m.placementMode === "manual" &&
-    turnPlayer?.id === playerId;
-  const legal = m.legalPlacements ?? [];
-  const legalCellIds = [...new Set(legal.map((p) => p.cellId))];
-  const tile = m.currentTile;
-  const tilePanel =
-    m.phase === "placement" && m.placementMode === "manual" && tile?.connections
-      ? `<h2>CURRENT TILE</h2>
-        <div id="tile-preview-wrap" class="tile-preview-wrap">
-          ${tilePreviewSvg(tile.connections, placementRotation, 6)}
-          <p class="hint">${tile.routeKind ?? "route"}${tile.hasTowerPoint ? " · tower pad" : ""}${tile.hasMine ? " · mine" : ""} · rot ${placementRotation}</p>
-          <div class="row">
-            <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
-            <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
-          </div>
-          <p class="hint">PC: mouse wheel rotates (snaps to next valid on hovered green cell). Mobile: twist with two fingers or use buttons. Click a <strong>green</strong> cell to place.</p>
-        </div>`
-      : "";
-
-  const turnBanner =
-    m.phase === "placement" && m.placementMode === "manual"
-      ? myTurn
-        ? `<p class="turn-banner yours">Your turn — place on a green cell to extend the shared corridors (${m.bagIndex + 1}/${m.bagTotal}). One path per base pair; sections may be shared.</p>`
-        : `<p class="turn-banner">Waiting for ${turnPlayer?.name ?? "…"} (${m.bagIndex}/${m.bagTotal})</p>`
-      : m.phase === "placement"
-        ? `<p class="turn-banner">Auto-placing routes…</p>`
-        : "";
-
-  hud.innerHTML = `
-    <div class="panel side-left">
-      <h2>${m.phase.toUpperCase()} · T${m.tick}</h2>
-      ${turnBanner}
-      ${tilePanel}
-      <div class="legend">
-        <span><i class="swatch route"></i> Route</span>
-        <span><i class="swatch base"></i> Base plinth</span>
-        <span><i class="swatch mine"></i> Your castle</span>
-        <span><i class="swatch legal"></i> Legal place</span>
-        <span><i class="swatch pad"></i> Tower pad</span>
-      </div>
-      <div class="bank">${bank}</div>
-      <p style="font-size:0.85rem;color:var(--muted);margin-top:0.6rem">
-        HP: ${self?.baseHp.toFixed(0) ?? "—"}
-        ${m.phase === "combat" ? `· Free pads: ${pads.length}` : ""}
-      </p>
-      <p class="error">${lastError}</p>
-      <h2>TARGETS</h2>
-      <div class="row">${targets || "—"}</div>
-      <h2>BODS</h2>
-      <div class="row">${bods || "—"}</div>
-    </div>
-    <div class="panel side-right">
-      <h2>PLAYERS</h2>
-      <ul class="seat-list">
-        ${m.players
-          .map(
-            (p) =>
-              `<li style="${p.alive ? "" : "opacity:0.45"}">${p.name} · HP ${p.baseHp.toFixed(0)}${p.id === playerId ? " ←" : ""}</li>`,
-          )
-          .join("")}
-      </ul>
-      ${buildList}
-      <div class="row" style="margin-top:0.75rem">
-        <button id="btn-upgrade-base" class="secondary">Upgrade base</button>
-      </div>
-      ${
-        m.phase === "ended"
-          ? `<p>Winners: ${m.winnerIds.map((id) => m.players.find((p) => p.id === id)?.name ?? id).join(", ")}</p>
-             <button id="btn-exit-end">Back to menu</button>`
-          : ""
-      }
-    </div>
-  `;
-
+function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
   hud.querySelectorAll("[data-target]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = (btn as HTMLElement).dataset.target!;
@@ -532,6 +414,7 @@ function renderMatch(): void {
   });
   hud.querySelectorAll("[data-build]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if ((btn as HTMLButtonElement).disabled) return;
       const cellId = Number((btn as HTMLElement).dataset.build);
       selectedBuildCell = cellId;
       socket.send({ type: "buildTower", cellId });
@@ -539,6 +422,7 @@ function renderMatch(): void {
   });
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if ((btn as HTMLButtonElement).disabled) return;
       const structureId = (btn as HTMLElement).dataset.upTower!;
       socket.send({
         type: "upgrade",
@@ -547,7 +431,10 @@ function renderMatch(): void {
     });
   });
   document.getElementById("btn-upgrade-base")?.addEventListener("click", () => {
-    if (!playerId) return;
+    const el = document.getElementById(
+      "btn-upgrade-base",
+    ) as HTMLButtonElement | null;
+    if (!playerId || el?.disabled) return;
     socket.send({
       type: "upgrade",
       target: { kind: "base", playerId },
@@ -562,6 +449,278 @@ function renderMatch(): void {
   document.getElementById("btn-rot-ccw")?.addEventListener("click", () => {
     rotatePlacement(-1);
   });
+}
+
+function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
+  const costs = matchCosts(m);
+  const affordTower = self ? canAffordCost(self.bank, costs.towerBuild) : false;
+  const affordTowerUp = self
+    ? canAffordCost(self.bank, costs.towerUpgrade)
+    : false;
+  const affordBase = self ? canAffordCost(self.bank, costs.baseUpgrade) : false;
+
+  const bankEl = document.getElementById("bank-live");
+  if (bankEl && self) {
+    bankEl.innerHTML = Object.entries(self.bank)
+      .map(([k, v]) => `<span class="chip">${k}: ${v.toFixed(1)}</span>`)
+      .join("");
+  }
+  const phaseEl = document.getElementById("phase-live");
+  if (phaseEl) phaseEl.textContent = `${m.phase.toUpperCase()} · T${m.tick}`;
+  const hpEl = document.getElementById("hp-live");
+  if (hpEl) {
+    const pads = freeTowerPads(m);
+    hpEl.textContent = `HP: ${self?.baseHp.toFixed(0) ?? "—"}${
+      m.phase === "combat" ? ` · Free pads: ${pads.length}` : ""
+    }`;
+  }
+  const errEl = document.getElementById("error-live");
+  if (errEl) errEl.textContent = lastError;
+
+  hud.querySelectorAll("[data-build]").forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    el.disabled = !affordTower;
+    const cellId = el.dataset.build;
+    el.classList.toggle("selected", selectedBuildCell === Number(cellId));
+    const label = el.querySelector(".btn-label");
+    if (label) {
+      label.textContent = affordTower
+        ? `Pad #${cellId}`
+        : `Pad #${cellId} (need resources)`;
+    }
+    const chips = el.querySelector(".cost-row");
+    if (chips) chips.innerHTML = costChipsHtml(costs.towerBuild, affordTower);
+  });
+  hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
+    const el = btn as HTMLButtonElement;
+    el.disabled = !affordTowerUp;
+    const chips = el.querySelector(".cost-row");
+    if (chips) chips.innerHTML = costChipsHtml(costs.towerUpgrade, affordTowerUp);
+  });
+  const baseBtn = document.getElementById(
+    "btn-upgrade-base",
+  ) as HTMLButtonElement | null;
+  if (baseBtn) {
+    baseBtn.disabled = !affordBase;
+    const chips = baseBtn.querySelector(".cost-row");
+    if (chips) chips.innerHTML = costChipsHtml(costs.baseUpgrade, affordBase);
+  }
+
+  // Bod toggle chips show spawn cost as hint
+  hud.querySelectorAll("[data-bod]").forEach((btn) => {
+    const el = btn as HTMLElement;
+    const id = el.dataset.bod!;
+    const cost = costs.bods[id] ?? {};
+    const afford = self ? canAffordCost(self.bank, cost) : false;
+    el.classList.toggle("cant-afford", !afford);
+    const chips = el.querySelector(".cost-row");
+    if (chips) chips.innerHTML = costChipsHtml(cost, afford);
+  });
+
+  const seatList = document.getElementById("seat-list-live");
+  if (seatList) {
+    seatList.innerHTML = m.players
+      .map(
+        (p) =>
+          `<li style="${p.alive ? "" : "opacity:0.45"}">${p.name} · HP ${p.baseHp.toFixed(0)}${p.id === playerId ? " ←" : ""}</li>`,
+      )
+      .join("");
+  }
+}
+
+function renderMatch(): void {
+  const m = lastMatch!;
+  planet.setSpin(m.phase === "placement");
+  updateLeaveBtn();
+  const self = me();
+  const costs = matchCosts(m);
+  const affordTower = self ? canAffordCost(self.bank, costs.towerBuild) : false;
+  const affordTowerUp = self
+    ? canAffordCost(self.bank, costs.towerUpgrade)
+    : false;
+  const affordBase = self ? canAffordCost(self.bank, costs.baseUpgrade) : false;
+
+  const pads = freeTowerPads(m);
+  const myTowers = m.towers.filter((t) => t.ownerId === playerId);
+
+  const turnPlayer = m.players[m.currentSeat];
+  const myTurn =
+    m.phase === "placement" &&
+    m.placementMode === "manual" &&
+    turnPlayer?.id === playerId;
+  const legal = m.legalPlacements ?? [];
+  const legalCellIds = [...new Set(legal.map((p) => p.cellId))];
+  const tile = m.currentTile;
+
+  const shellKey = [
+    m.phase,
+    m.placementMode,
+    m.currentSeat,
+    m.bagIndex,
+    myTurn ? "1" : "0",
+    placementRotation,
+    pads.join(","),
+    myTowers.map((t) => t.id).join(","),
+    Object.entries(self?.targetEnabled ?? {})
+      .map(([k, v]) => `${k}:${v}`)
+      .join(","),
+    Object.entries(self?.bodEnabled ?? {})
+      .map(([k, v]) => `${k}:${v}`)
+      .join(","),
+    m.winnerIds.join(","),
+    selectedBuildCell ?? "",
+  ].join("|");
+
+  if (shellKey === hudShellKey && hud.querySelector(".side-left")) {
+    patchMatchLive(m, self);
+  } else {
+    hudShellKey = shellKey;
+
+    const targets = self
+      ? Object.entries(self.targetEnabled)
+          .map(
+            ([id, on]) =>
+              `<button class="chip ${on ? "on" : "off"}" data-target="${id}">${m.players.find((p) => p.id === id)?.name ?? id}</button>`,
+          )
+          .join("")
+      : "";
+
+    const bods = self
+      ? Object.entries(self.bodEnabled)
+          .map(([id, on]) => {
+            const cost = costs.bods[id] ?? {};
+            const afford = canAffordCost(self.bank, cost);
+            return `<button class="chip ${on ? "on" : "off"} ${afford ? "" : "cant-afford"}" data-bod="${id}">
+              <span>${id}</span>
+              <span class="cost-row">${costChipsHtml(cost, afford)}</span>
+            </button>`;
+          })
+          .join("")
+      : "";
+
+    const buildList =
+      m.phase === "combat"
+        ? `<h2>BUILD TOWER</h2>
+      <p class="hint">Cyan rings = empty pads. One gun costs most of your start bank.</p>
+      <div class="build-list">
+        ${
+          pads.length === 0
+            ? `<p class="hint">No free pads left.</p>`
+            : pads
+                .slice(0, 12)
+                .map(
+                  (cellId) =>
+                    `<button class="build-btn ${selectedBuildCell === cellId ? "selected" : ""}" data-build="${cellId}" ${affordTower ? "" : "disabled"}>
+                      <span class="btn-label">${affordTower ? `Pad #${cellId}` : `Pad #${cellId} (need resources)`}</span>
+                      <span class="cost-row">${costChipsHtml(costs.towerBuild, affordTower)}</span>
+                    </button>`,
+                )
+                .join("") +
+              (pads.length > 12
+                ? `<p class="hint">+${pads.length - 12} more on map</p>`
+                : "")
+        }
+      </div>
+      <h2>YOUR TOWERS (${myTowers.length})</h2>
+      <div class="build-list">
+        ${
+          myTowers.length === 0
+            ? `<p class="hint">None yet.</p>`
+            : myTowers
+                .map(
+                  (t) =>
+                    `<button class="secondary build-btn" data-up-tower="${t.id}" ${affordTowerUp ? "" : "disabled"}>
+                      <span class="btn-label">Upgrade #${t.cellId}</span>
+                      <span class="cost-row">${costChipsHtml(costs.towerUpgrade, affordTowerUp)}</span>
+                    </button>`,
+                )
+                .join("")
+        }
+      </div>`
+        : `<p class="hint">Flat road ribbons = routes on the hex grid.</p>`;
+
+    const tilePanel =
+      m.phase === "placement" &&
+      m.placementMode === "manual" &&
+      tile?.connections
+        ? `<h2>CURRENT TILE</h2>
+        <div id="tile-preview-wrap" class="tile-preview-wrap">
+          ${tilePreviewSvg(tile.connections, placementRotation, 6)}
+          <p class="hint">${tile.routeKind ?? "route"}${tile.hasTowerPoint ? " · tower pad" : ""}${tile.hasMine ? " · mine" : ""} · rot ${placementRotation}</p>
+          <div class="row">
+            <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
+            <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
+          </div>
+          <p class="hint">PC: mouse wheel rotates. Mobile: two-finger twist or buttons. Click a <strong>green</strong> cell.</p>
+        </div>`
+        : "";
+
+    const turnBanner =
+      m.phase === "placement" && m.placementMode === "manual"
+        ? myTurn
+          ? `<p class="turn-banner yours">Your turn — place on a green cell (${m.bagIndex + 1}/${m.bagTotal}).</p>`
+          : `<p class="turn-banner">Waiting for ${turnPlayer?.name ?? "…"} (${m.bagIndex}/${m.bagTotal})</p>`
+        : m.phase === "placement"
+          ? `<p class="turn-banner">Auto-placing routes…</p>`
+          : "";
+
+    hud.innerHTML = `
+    <div class="panel side-left">
+      <h2 id="phase-live">${m.phase.toUpperCase()} · T${m.tick}</h2>
+      ${turnBanner}
+      ${tilePanel}
+      <div class="legend">
+        <span><i class="swatch route"></i> Road</span>
+        <span><i class="swatch base"></i> Base plinth</span>
+        <span><i class="swatch mine"></i> Your castle</span>
+        <span><i class="swatch legal"></i> Legal place</span>
+        <span><i class="swatch pad"></i> Tower pad</span>
+      </div>
+      <div class="bank" id="bank-live">${
+        self
+          ? Object.entries(self.bank)
+              .map(([k, v]) => `<span class="chip">${k}: ${v.toFixed(1)}</span>`)
+              .join("")
+          : ""
+      }</div>
+      <p id="hp-live" style="font-size:0.85rem;color:var(--muted);margin-top:0.6rem">
+        HP: ${self?.baseHp.toFixed(0) ?? "—"}
+        ${m.phase === "combat" ? `· Free pads: ${pads.length}` : ""}
+      </p>
+      <p class="error" id="error-live">${lastError}</p>
+      <h2>TARGETS</h2>
+      <div class="row">${targets || "—"}</div>
+      <h2>BODS</h2>
+      <div class="row">${bods || "—"}</div>
+    </div>
+    <div class="panel side-right">
+      <h2>PLAYERS</h2>
+      <ul class="seat-list" id="seat-list-live">
+        ${m.players
+          .map(
+            (p) =>
+              `<li style="${p.alive ? "" : "opacity:0.45"}">${p.name} · HP ${p.baseHp.toFixed(0)}${p.id === playerId ? " ←" : ""}</li>`,
+          )
+          .join("")}
+      </ul>
+      ${buildList}
+      <div class="row" style="margin-top:0.75rem">
+        <button id="btn-upgrade-base" class="secondary" ${affordBase ? "" : "disabled"}>
+          <span class="btn-label">Upgrade base</span>
+          <span class="cost-row">${costChipsHtml(costs.baseUpgrade, affordBase)}</span>
+        </button>
+      </div>
+      ${
+        m.phase === "ended"
+          ? `<p>Winners: ${m.winnerIds.map((id) => m.players.find((p) => p.id === id)?.name ?? id).join(", ")}</p>
+             <button id="btn-exit-end">Back to menu</button>`
+          : ""
+      }
+    </div>
+  `;
+
+    bindMatchHudHandlers(self);
+  }
 
   const viewData: PlanetViewData = {
     cells: m.planet.cells,
@@ -608,6 +767,13 @@ planet.onCellClick = (cellId) => {
     const placed = lastMatch.placed.find((p) => p.cellId === cellId);
     const hasTower = lastMatch.towers.some((t) => t.cellId === cellId);
     if (placed?.tile.hasTowerPoint && !hasTower) {
+      const self = me();
+      const costs = matchCosts(lastMatch);
+      if (!self || !canAffordCost(self.bank, costs.towerBuild)) {
+        lastError = "Need more resources for a tower";
+        paint();
+        return;
+      }
       selectedBuildCell = cellId;
       socket.send({ type: "buildTower", cellId });
       return;

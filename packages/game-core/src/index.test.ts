@@ -6,13 +6,16 @@ import {
   basesConnected,
   buildPlanet,
   buildRouteGraph,
+  canAfford,
   createMatch,
   createPlacementState,
   createRng,
   generateTileBag,
   defaultGameConfig,
   findPath,
+  pay,
   serializeMatch,
+  startingBankFor,
   tickMatch,
   runAiPlacement,
 } from "./index.js";
@@ -178,6 +181,16 @@ describe("match combat", () => {
     tickMatch(match);
     const after = match.players[0]!.bank.stone ?? 0;
     assert.ok(after >= startStone + 50, `expected loot, ${startStone} -> ${after}`);
+  });
+
+  it("starting bank buys one basic tower but not two", () => {
+    const resources = ["stone", "water", "power"];
+    const bank = startingBankFor(defaultGameConfig, resources);
+    const cost = defaultGameConfig.towers.basic!.buildCost;
+    assert.equal(canAfford(bank, cost), true);
+    pay(bank, cost);
+    assert.equal(canAfford(bank, cost), false);
+    assert.ok((bank.stone ?? 0) >= 4, "buffer left for cheap bods");
   });
 
   it("manual placement waits on human; AI does not dump the bag", () => {
