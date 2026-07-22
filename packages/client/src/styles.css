@@ -634,14 +634,18 @@ button.secondary {
 
 .ws-tower-tab .ws-meter-fill {
   position: absolute;
-  inset: 0 auto 0 0;
-  background: rgba(61, 214, 198, 0.28);
+  left: 0;
+  right: auto;
+  bottom: 0;
+  top: auto;
+  height: 3px;
+  background: var(--accent2);
   pointer-events: none;
   z-index: 0;
 }
 
 .ws-tower-tab.on.over .ws-meter-fill {
-  background: rgba(224, 80, 80, 0.4);
+  background: var(--danger);
 }
 
 .ws-tab-face {
@@ -694,18 +698,6 @@ button.secondary {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-}
-
-.ws-json {
-  width: 100%;
-  min-height: 10rem;
-  margin-top: 0.5rem;
-  font-family: ui-monospace, Consolas, monospace;
-  font-size: 0.72rem;
-  background: rgba(0, 0, 0, 0.45);
-  color: var(--text);
-  border: 1px solid var(--line);
-  padding: 0.5rem;
 }
 
 .ws-errors {

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.29 — 2026-07-22
+
+### Changed
+
+- Workshop drops Simple / Advanced JSON tabs (sliders only; download/upload kept)
+- Active tower tab shows spent points as a thin bottom edge bar instead of a wash fill
+
 ## 0.1.28 — 2026-07-22
 
 ### Changed

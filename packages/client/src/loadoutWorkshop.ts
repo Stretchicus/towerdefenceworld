@@ -15,16 +15,12 @@ import {
   type TowerDef,
 } from "@tdw/game-core";
 
-export type WorkshopTab = "simple" | "advanced";
-
 export type SliderField = SliderStatField;
 
 export interface WorkshopState {
   towers: TowerDef[];
   resourceCount: number;
   selectedIndex: number;
-  tab: WorkshopTab;
-  jsonText: string;
   errors: string[];
 }
 
@@ -182,18 +178,8 @@ export function createWorkshopState(
     towers: list,
     resourceCount,
     selectedIndex: 0,
-    tab: "simple",
-    jsonText: JSON.stringify(loadoutFileFromTowers(list), null, 2),
     errors: [],
   };
-}
-
-export function syncWorkshopJson(state: WorkshopState): void {
-  state.jsonText = JSON.stringify(
-    loadoutFileFromTowers(state.towers),
-    null,
-    2,
-  );
 }
 
 export function workshopValidation(state: WorkshopState): string[] {
@@ -320,7 +306,7 @@ export function workshopHtml(state: WorkshopState): string {
         })
         .join("")
     : "";
-  const simple = t
+  const editors = t
     ? `<div class="ws-simple">
         <label>Id <input data-ws-field="id" value="${escapeHtml(t.id)}" /></label>
         ${simpleSliders}
@@ -328,12 +314,6 @@ export function workshopHtml(state: WorkshopState): string {
         <div class="ws-costs"><span>Build ${costChips(t.buildCost)}</span><span>Upgrade ${costChips(t.upgradeCost)}</span></div>
       </div>`
     : `<p class="hint">No towers in loadout.</p>`;
-
-  const advanced = `<textarea class="ws-json" data-ws-json rows="12" spellcheck="false">${escapeHtml(state.jsonText)}</textarea>
-    <div class="row">
-      <button type="button" class="secondary" data-ws-validate-json>Validate JSON</button>
-      <button type="button" data-ws-apply-json>Apply JSON</button>
-    </div>`;
 
   return `<div class="workshop" id="tower-workshop">
     <h2>TOWER WORKSHOP</h2>
@@ -346,11 +326,7 @@ export function workshopHtml(state: WorkshopState): string {
       <button type="button" class="secondary" data-ws-download>Download</button>
       <label class="ws-upload secondary"><input type="file" accept="application/json,.json" data-ws-upload hidden />Upload</label>
     </div>
-    <div class="row">
-      <button type="button" class="chip ${state.tab === "simple" ? "on" : "off"}" data-ws-tab="simple">Simple</button>
-      <button type="button" class="chip ${state.tab === "advanced" ? "on" : "off"}" data-ws-tab="advanced">Advanced JSON</button>
-    </div>
-    ${state.tab === "simple" ? simple : advanced}
+    ${editors}
     ${
       errors.length
         ? `<ul class="ws-errors">${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>`
@@ -377,7 +353,6 @@ export function bindWorkshop(
       normalized,
       state.resourceCount,
     );
-    syncWorkshopJson(state);
   };
 
   const softValidate = () => {
@@ -430,13 +405,6 @@ export function bindWorkshop(
       onChange("hard");
     });
   });
-  root.querySelectorAll("[data-ws-tab]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      state.tab = (btn as HTMLElement).dataset.wsTab as WorkshopTab;
-      if (state.tab === "advanced") syncWorkshopJson(state);
-      onChange("hard");
-    });
-  });
   root.querySelector("[data-ws-add]")?.addEventListener("click", () => {
     const id = `tower-${state.towers.length + 1}`;
     const tower = normalizeTowerForResources(
@@ -446,20 +414,17 @@ export function bindWorkshop(
     rebalanceTowerToPool(tower, "power", state.resourceCount);
     state.towers.push(normalizeTowerForResources(tower, state.resourceCount));
     state.selectedIndex = state.towers.length - 1;
-    syncWorkshopJson(state);
     onChange("hard");
   });
   root.querySelector("[data-ws-remove]")?.addEventListener("click", () => {
     if (state.towers.length <= 1) return;
     state.towers.splice(state.selectedIndex, 1);
     state.selectedIndex = Math.max(0, state.selectedIndex - 1);
-    syncWorkshopJson(state);
     onChange("hard");
   });
   root.querySelector("[data-ws-defaults]")?.addEventListener("click", () => {
     state.towers = defaultTowerLoadout(state.resourceCount);
     state.selectedIndex = 0;
-    syncWorkshopJson(state);
     onChange("hard");
   });
   root.querySelector("[data-ws-download]")?.addEventListener("click", () => {
@@ -486,7 +451,6 @@ export function bindWorkshop(
         }
         state.towers = structuredClone(parsed.towers);
         state.selectedIndex = 0;
-        syncWorkshopJson(state);
         onChange("hard");
       } catch {
         state.errors = ["invalid JSON file"];
@@ -515,48 +479,8 @@ export function bindWorkshop(
         const t = state.towers[state.selectedIndex];
         if (!t) return;
         t.id = input.value.trim() || t.id;
-        syncWorkshopJson(state);
         onChange("hard");
       });
-    }
-  });
-
-  const jsonArea = root.querySelector(
-    "[data-ws-json]",
-  ) as HTMLTextAreaElement | null;
-  jsonArea?.addEventListener("input", () => {
-    state.jsonText = jsonArea.value;
-  });
-  root.querySelector("[data-ws-validate-json]")?.addEventListener("click", () => {
-    try {
-      const parsed = parseLoadoutFile(
-        JSON.parse(state.jsonText),
-        state.resourceCount,
-      );
-      state.errors = parsed.ok ? [] : parsed.errors;
-    } catch {
-      state.errors = ["invalid JSON"];
-    }
-    onChange("hard");
-  });
-  root.querySelector("[data-ws-apply-json]")?.addEventListener("click", () => {
-    try {
-      const parsed = parseLoadoutFile(
-        JSON.parse(state.jsonText),
-        state.resourceCount,
-      );
-      if (!parsed.ok || !parsed.towers) {
-        state.errors = parsed.ok ? ["apply failed"] : parsed.errors;
-        onChange("hard");
-        return;
-      }
-      state.towers = structuredClone(parsed.towers);
-      state.selectedIndex = 0;
-      syncWorkshopJson(state);
-      onChange("hard");
-    } catch {
-      state.errors = ["invalid JSON"];
-      onChange("hard");
     }
   });
 }
