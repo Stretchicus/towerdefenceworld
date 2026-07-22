@@ -20,17 +20,22 @@ function disposeObject(root: THREE.Object3D): void {
 function makeFireworks(
   origin: THREE.Vector3,
   outward: THREE.Vector3,
-  teamColor: string,
+  _teamColor: string,
 ): FxSystem {
   const group = new THREE.Group();
   const up = outward.clone().normalize();
-  const launch = origin.clone().addScaledVector(up, 0.08);
+  const launch = origin.clone().addScaledVector(up, 0.06);
 
-  type Rocket = {
+  // Orthonormal frame for slight off-vertical aim
+  const tangent = new THREE.Vector3();
+  if (Math.abs(up.y) < 0.9) tangent.set(0, 1, 0).cross(up).normalize();
+  else tangent.set(1, 0, 0).cross(up).normalize();
+  const bitangent = new THREE.Vector3().copy(up).cross(tangent).normalize();
+
+  type Mortar = {
     pos: THREE.Vector3;
     vel: THREE.Vector3;
     age: number;
-    burstAt: number;
   };
   type Spark = {
     pos: THREE.Vector3;
@@ -40,114 +45,144 @@ function makeFireworks(
     color: THREE.Color;
   };
 
-  const rockets: Rocket[] = [];
+  const mortars: Mortar[] = [];
   const sparks: Spark[] = [];
-  let spawnAcc = 0;
+  let nextLaunch = 0.05 + Math.random() * 0.25;
 
   const sparkGeo = new THREE.BufferGeometry();
-  const maxSparks = 400;
+  const maxSparks = 700;
   const sparkPos = new Float32Array(maxSparks * 3);
   const sparkCol = new Float32Array(maxSparks * 3);
   sparkGeo.setAttribute("position", new THREE.BufferAttribute(sparkPos, 3));
   sparkGeo.setAttribute("color", new THREE.BufferAttribute(sparkCol, 3));
   const sparkMat = new THREE.PointsMaterial({
-    size: 0.018,
+    size: 0.016,
     vertexColors: true,
     transparent: true,
-    opacity: 0.95,
+    opacity: 1,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
+    sizeAttenuation: true,
   });
-  const sparkPoints = new THREE.Points(sparkGeo, sparkMat);
-  group.add(sparkPoints);
+  group.add(new THREE.Points(sparkGeo, sparkMat));
 
-  const rocketGeo = new THREE.BufferGeometry();
-  const maxRockets = 12;
-  const rocketPos = new Float32Array(maxRockets * 3);
-  rocketGeo.setAttribute("position", new THREE.BufferAttribute(rocketPos, 3));
-  const rocketMat = new THREE.PointsMaterial({
-    size: 0.028,
-    color: teamColor,
+  const mortarGeo = new THREE.BufferGeometry();
+  const maxMortars = 8;
+  const mortarPos = new Float32Array(maxMortars * 3);
+  mortarGeo.setAttribute("position", new THREE.BufferAttribute(mortarPos, 3));
+  const mortarMat = new THREE.PointsMaterial({
+    size: 0.022,
+    color: 0xfff2c8,
     transparent: true,
-    opacity: 0.9,
+    opacity: 1,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
+    sizeAttenuation: true,
   });
-  const rocketPoints = new THREE.Points(rocketGeo, rocketMat);
-  group.add(rocketPoints);
+  group.add(new THREE.Points(mortarGeo, mortarMat));
 
   const palette = [
-    new THREE.Color(teamColor),
-    new THREE.Color(teamColor).lerp(new THREE.Color("#ffffff"), 0.45),
-    new THREE.Color("#ffe08a"),
-    new THREE.Color("#ff6b4a"),
-    new THREE.Color("#7ad7ff"),
+    new THREE.Color("#ff4d6d"),
+    new THREE.Color("#ff9f1c"),
+    new THREE.Color("#ffe66d"),
+    new THREE.Color("#7bf1a8"),
+    new THREE.Color("#4cc9f0"),
+    new THREE.Color("#7aa2ff"),
+    new THREE.Color("#c77dff"),
+    new THREE.Color("#ff6bcb"),
+    new THREE.Color("#ffffff"),
   ];
 
   const tmp = new THREE.Vector3();
-  const side = new THREE.Vector3();
+  const dir = new THREE.Vector3();
+  const GRAVITY = -0.85;
 
-  function spawnRocket(): void {
-    if (rockets.length >= maxRockets) return;
-    const speed = 0.55 + Math.random() * 0.35;
-    rockets.push({
-      pos: launch.clone(),
-      vel: up.clone().multiplyScalar(speed),
+  function spawnMortar(): void {
+    if (mortars.length >= maxMortars) return;
+    // Slight lean off vertical (8°–22°)
+    const lean = (8 + Math.random() * 14) * (Math.PI / 180);
+    const yaw = Math.random() * Math.PI * 2;
+    dir
+      .copy(up)
+      .multiplyScalar(Math.cos(lean))
+      .addScaledVector(tangent, Math.sin(lean) * Math.cos(yaw))
+      .addScaledVector(bitangent, Math.sin(lean) * Math.sin(yaw))
+      .normalize();
+    const speed = 0.48 + Math.random() * 0.22;
+    mortars.push({
+      pos: launch.clone().addScaledVector(
+        tangent,
+        (Math.random() - 0.5) * 0.02,
+      ).addScaledVector(bitangent, (Math.random() - 0.5) * 0.02),
+      vel: dir.clone().multiplyScalar(speed),
       age: 0,
-      burstAt: 0.12 + Math.random() * 0.1,
     });
   }
 
   function burst(at: THREE.Vector3): void {
-    const n = 28 + Math.floor(Math.random() * 18);
-    for (let i = 0; i < n; i++) {
+    // 2–3 colours per shell for a classic mortar look
+    const nColors = 2 + (Math.random() < 0.45 ? 1 : 0);
+    const shellColors: THREE.Color[] = [];
+    const used = new Set<number>();
+    while (shellColors.length < nColors) {
+      const i = Math.floor(Math.random() * palette.length);
+      if (used.has(i)) continue;
+      used.add(i);
+      shellColors.push(palette[i]!);
+    }
+
+    const count = 52 + Math.floor(Math.random() * 28);
+    const shellSpeed = 0.2 + Math.random() * 0.08;
+    for (let i = 0; i < count; i++) {
       if (sparks.length >= maxSparks) sparks.shift();
-      const theta = Math.random() * Math.PI * 2;
-      const phi = Math.acos(2 * Math.random() - 1);
+      // Uniform sphere shell (equal speeds → spherical burst)
+      const u = Math.random();
+      const v = Math.random();
+      const theta = 2 * Math.PI * u;
+      const phi = Math.acos(2 * v - 1);
       tmp.set(
         Math.sin(phi) * Math.cos(theta),
         Math.sin(phi) * Math.sin(theta),
         Math.cos(phi),
       );
-      // Bias burst slightly outward from planet
-      tmp.addScaledVector(up, 0.35).normalize();
-      const speed = 0.18 + Math.random() * 0.28;
-      const life = 0.55 + Math.random() * 0.55;
+      const speed = shellSpeed * (0.92 + Math.random() * 0.16);
+      const life = 0.65 + Math.random() * 0.45;
       sparks.push({
         pos: at.clone(),
-        vel: tmp.multiplyScalar(speed),
+        vel: tmp.clone().multiplyScalar(speed),
         life,
         maxLife: life,
-        color: palette[Math.floor(Math.random() * palette.length)]!.clone(),
+        color: shellColors[Math.floor(Math.random() * shellColors.length)]!.clone(),
       });
     }
   }
 
   function syncBuffers(): void {
-    for (let i = 0; i < maxRockets; i++) {
-      const r = rockets[i];
+    for (let i = 0; i < maxMortars; i++) {
+      const m = mortars[i];
       const o = i * 3;
-      if (r) {
-        rocketPos[o] = r.pos.x;
-        rocketPos[o + 1] = r.pos.y;
-        rocketPos[o + 2] = r.pos.z;
+      if (m) {
+        mortarPos[o] = m.pos.x;
+        mortarPos[o + 1] = m.pos.y;
+        mortarPos[o + 2] = m.pos.z;
       } else {
-        rocketPos[o] = rocketPos[o + 1] = rocketPos[o + 2] = 0;
+        mortarPos[o] = mortarPos[o + 1] = mortarPos[o + 2] = 0;
       }
     }
-    rocketGeo.attributes.position!.needsUpdate = true;
-    rocketGeo.setDrawRange(0, rockets.length);
+    mortarGeo.attributes.position!.needsUpdate = true;
+    mortarGeo.setDrawRange(0, mortars.length);
 
     for (let i = 0; i < maxSparks; i++) {
       const s = sparks[i];
       const o = i * 3;
       if (s) {
+        const fade = Math.max(0, s.life / s.maxLife);
         sparkPos[o] = s.pos.x;
         sparkPos[o + 1] = s.pos.y;
         sparkPos[o + 2] = s.pos.z;
-        sparkCol[o] = s.color.r;
-        sparkCol[o + 1] = s.color.g;
-        sparkCol[o + 2] = s.color.b;
+        sparkCol[o] = s.color.r * fade;
+        sparkCol[o + 1] = s.color.g * fade;
+        sparkCol[o + 2] = s.color.b * fade;
       } else {
         sparkPos[o] = sparkPos[o + 1] = sparkPos[o + 2] = 0;
         sparkCol[o] = sparkCol[o + 1] = sparkCol[o + 2] = 0;
@@ -158,29 +193,31 @@ function makeFireworks(
     sparkGeo.setDrawRange(0, sparks.length);
   }
 
-  spawnRocket();
+  spawnMortar();
 
   return {
     group,
     update(dt: number) {
-      spawnAcc += dt;
-      while (spawnAcc > 0.55) {
-        spawnAcc -= 0.45 + Math.random() * 0.35;
-        spawnRocket();
+      nextLaunch -= dt;
+      // Irregular cadence so several mortars overlap in flight / burst
+      while (nextLaunch <= 0) {
+        spawnMortar();
+        nextLaunch += 0.18 + Math.random() * 0.65;
       }
 
-      for (let i = rockets.length - 1; i >= 0; i--) {
-        const r = rockets[i]!;
-        r.age += dt;
-        r.pos.addScaledVector(r.vel, dt);
-        const height = r.pos.clone().sub(launch).dot(up);
-        if (height >= r.burstAt || r.age > 1.4) {
-          burst(r.pos);
-          rockets.splice(i, 1);
+      for (let i = mortars.length - 1; i >= 0; i--) {
+        const m = mortars[i]!;
+        m.age += dt;
+        m.vel.addScaledVector(up, GRAVITY * dt);
+        m.pos.addScaledVector(m.vel, dt);
+        // Burst at apex (upward speed gone) after a short climb
+        const climb = m.vel.dot(up);
+        if ((climb <= 0.04 && m.age > 0.28) || m.age > 1.6) {
+          burst(m.pos);
+          mortars.splice(i, 1);
         }
       }
 
-      const gravity = -0.55;
       for (let i = sparks.length - 1; i >= 0; i--) {
         const s = sparks[i]!;
         s.life -= dt;
@@ -188,28 +225,11 @@ function makeFireworks(
           sparks.splice(i, 1);
           continue;
         }
-        s.vel.addScaledVector(up, gravity * dt);
-        // slight drag
-        s.vel.multiplyScalar(1 - 0.8 * dt);
+        s.vel.addScaledVector(up, GRAVITY * 0.55 * dt);
+        s.vel.multiplyScalar(1 - 0.55 * dt);
         s.pos.addScaledVector(s.vel, dt);
-        // twinkle via unused side noise
-        side.set(
-          (Math.random() - 0.5) * 0.01,
-          (Math.random() - 0.5) * 0.01,
-          (Math.random() - 0.5) * 0.01,
-        );
-        s.pos.add(side);
       }
 
-      const fade =
-        sparks.length === 0
-          ? 0.95
-          : Math.min(
-              1,
-              sparks.reduce((a, s) => a + s.life / s.maxLife, 0) /
-                Math.max(1, sparks.length),
-            );
-      sparkMat.opacity = 0.55 + fade * 0.4;
       syncBuffers();
     },
     dispose() {

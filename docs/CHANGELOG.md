@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.43 — 2026-07-22
+
+### Changed
+
+- Winner fireworks are staggered mortar shells: angled rise, apex burst into a multicolour sphere
+
 ## 0.1.42 — 2026-07-22
 
 ### Fixed
