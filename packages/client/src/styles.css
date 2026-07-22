@@ -417,6 +417,76 @@ header.top .meta {
   scrollbar-width: thin;
 }
 
+.lobby.in-room {
+  width: min(960px, 94vw);
+}
+
+.lobby-head h2 {
+  margin-bottom: 0.35rem;
+}
+
+.lobby-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.lobby-col {
+  min-width: 0;
+}
+
+.lobby-room {
+  margin: 0.15rem 0 0.35rem;
+}
+
+.lobby-share {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin: 0.35rem 0 0;
+  word-break: break-all;
+}
+
+.lobby-actions {
+  margin-top: 0.35rem;
+}
+
+.lobby-workshop-wrap .workshop {
+  margin-top: 0;
+}
+
+@media (min-width: 820px) {
+  .lobby.in-room {
+    width: min(1040px, 94vw);
+  }
+
+  .lobby-body:not(.lobby-body-menu) {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1.25rem;
+  }
+
+  .lobby-setup {
+    flex: 0 1 340px;
+    max-width: 380px;
+  }
+
+  .lobby-workshop-wrap {
+    flex: 1 1 0;
+    border-left: 1px solid var(--line);
+    padding-left: 1.15rem;
+  }
+
+  .lobby-workshop-wrap .workshop {
+    margin: 0;
+    padding-top: 0;
+    border-top: none;
+  }
+
+  .lobby-workshop-wrap .workshop h2 {
+    margin-top: 0;
+  }
+}
+
 .row {
   display: flex;
   flex-wrap: wrap;

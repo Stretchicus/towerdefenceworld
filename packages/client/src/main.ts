@@ -100,7 +100,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.25";
+const CLIENT_BUILD = "v0.1.26";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -458,88 +458,98 @@ function renderLobby(): void {
   const lobbyScroll = prevLobby?.scrollTop ?? 0;
 
   hud.innerHTML = `
-    <div class="panel lobby">
-      <h2>COMMAND LOBBY</h2>
-      <p class="error">${lastError}</p>
+    <div class="panel lobby ${s ? "in-room" : "lobby-menu"}">
+      <div class="lobby-head">
+        <h2>COMMAND LOBBY</h2>
+        <p class="error">${lastError}</p>
+      </div>
       ${
         s
-          ? `<p>Room <strong>${s.room}</strong> · Host ${s.hostId === playerId ? "you" : s.hostId}</p>
-        <ul class="seat-list">${s.seats
-          .map(
-            (seat) =>
-              `<li>${seat.name}${seat.isAi ? " (AI)" : ""}${seat.ready ? " ✓" : ""}${seat.id === playerId ? " ← you" : ""}${
-                seat.loadout?.length
-                  ? ` · [${seat.loadout.map((t) => t.id).join(", ")}]`
-                  : ""
-              }</li>`,
-          )
-          .join("")}</ul>
-        <div class="row">
-          <label>Mode
-            <select id="mode">
-              <option value="ffa" ${s.settings.mode === "ffa" ? "selected" : ""}>FFA</option>
-              <option value="teams" ${s.settings.mode === "teams" ? "selected" : ""}>Teams</option>
-            </select>
-          </label>
-          <label>Win
-            <select id="win">
-              <option value="last_base" ${s.settings.winRule === "last_base" ? "selected" : ""}>Last base</option>
-              <option value="timed" ${s.settings.winRule === "timed" ? "selected" : ""}>Timed</option>
-            </select>
-          </label>
+          ? `<div class="lobby-body">
+        <div class="lobby-col lobby-setup">
+          <p class="lobby-room">Room <strong>${s.room}</strong> · Host ${s.hostId === playerId ? "you" : s.hostId}</p>
+          <ul class="seat-list">${s.seats
+            .map(
+              (seat) =>
+                `<li>${seat.name}${seat.isAi ? " (AI)" : ""}${seat.ready ? " ✓" : ""}${seat.id === playerId ? " ← you" : ""}${
+                  seat.loadout?.length
+                    ? ` · [${seat.loadout.map((t) => t.id).join(", ")}]`
+                    : ""
+                }</li>`,
+            )
+            .join("")}</ul>
+          <div class="row">
+            <label>Mode
+              <select id="mode">
+                <option value="ffa" ${s.settings.mode === "ffa" ? "selected" : ""}>FFA</option>
+                <option value="teams" ${s.settings.mode === "teams" ? "selected" : ""}>Teams</option>
+              </select>
+            </label>
+            <label>Win
+              <select id="win">
+                <option value="last_base" ${s.settings.winRule === "last_base" ? "selected" : ""}>Last base</option>
+                <option value="timed" ${s.settings.winRule === "timed" ? "selected" : ""}>Timed</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label>World
+              <select id="world">
+                <option value="small" ${s.settings.worldSize === "small" ? "selected" : ""}>Small</option>
+                <option value="medium" ${s.settings.worldSize === "medium" ? "selected" : ""}>Medium</option>
+                <option value="large" ${s.settings.worldSize === "large" ? "selected" : ""}>Large</option>
+              </select>
+            </label>
+            <label>Placement
+              <select id="place">
+                <option value="auto" ${s.settings.placementMode === "auto" ? "selected" : ""}>Auto</option>
+                <option value="manual" ${s.settings.placementMode === "manual" ? "selected" : ""}>Manual</option>
+              </select>
+            </label>
+          </div>
+          <div class="row">
+            <label>Seats
+              <select id="seats">
+                ${[2, 3, 4]
+                  .map(
+                    (n) =>
+                      `<option value="${n}" ${s.settings.seatCount === n ? "selected" : ""}>${n}</option>`,
+                  )
+                  .join("")}
+              </select>
+            </label>
+            <label>Resources
+              <select id="res">
+                ${[2, 3, 4, 5]
+                  .map(
+                    (n) =>
+                      `<option value="${n}" ${s.settings.resourceCount === n ? "selected" : ""}>${n}</option>`,
+                  )
+                  .join("")}
+              </select>
+            </label>
+          </div>
+          <div class="row lobby-actions">
+            <button id="btn-ai" class="secondary">Fill AI</button>
+            <button id="btn-ready" ${loadoutOk ? "" : "disabled"} title="${loadoutOk ? "" : "Fix loadout first"}">Ready</button>
+            <button id="btn-start">Start</button>
+          </div>
+          <p class="lobby-share">Share: ${location.origin}?room=${s.room}</p>
         </div>
-        <div class="row">
-          <label>World
-            <select id="world">
-              <option value="small" ${s.settings.worldSize === "small" ? "selected" : ""}>Small</option>
-              <option value="medium" ${s.settings.worldSize === "medium" ? "selected" : ""}>Medium</option>
-              <option value="large" ${s.settings.worldSize === "large" ? "selected" : ""}>Large</option>
-            </select>
-          </label>
-          <label>Placement
-            <select id="place">
-              <option value="auto" ${s.settings.placementMode === "auto" ? "selected" : ""}>Auto</option>
-              <option value="manual" ${s.settings.placementMode === "manual" ? "selected" : ""}>Manual</option>
-            </select>
-          </label>
+        <div class="lobby-col lobby-workshop-wrap">
+          ${workshopBlock}
         </div>
+      </div>`
+          : `<div class="lobby-body lobby-body-menu">
         <div class="row">
-          <label>Seats
-            <select id="seats">
-              ${[2, 3, 4]
-                .map(
-                  (n) =>
-                    `<option value="${n}" ${s.settings.seatCount === n ? "selected" : ""}>${n}</option>`,
-                )
-                .join("")}
-            </select>
-          </label>
-          <label>Resources
-            <select id="res">
-              ${[2, 3, 4, 5]
-                .map(
-                  (n) =>
-                    `<option value="${n}" ${s.settings.resourceCount === n ? "selected" : ""}>${n}</option>`,
-                )
-                .join("")}
-            </select>
-          </label>
-        </div>
-        ${workshopBlock}
-        <div class="row">
-          <button id="btn-ai" class="secondary">Fill AI</button>
-          <button id="btn-ready" ${loadoutOk ? "" : "disabled"} title="${loadoutOk ? "" : "Fix loadout first"}">Ready</button>
-          <button id="btn-start">Start</button>
-        </div>
-        <p style="font-size:0.8rem;color:var(--muted)">Share: ${location.origin}?room=${s.room}</p>`
-          : `<div class="row">
           <label>Name <input id="name" value="Commander" /></label>
         </div>
         <div class="row">
           <button id="btn-create">Create match</button>
           <label>Room <input id="join-code" placeholder="CODE" value="${joinRoom ?? ""}" /></label>
           <button id="btn-join" class="secondary">Join</button>
-        </div>`
+        </div>
+      </div>`
       }
     </div>
   `;

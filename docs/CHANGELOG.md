@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.26 — 2026-07-22
+
+### Changed
+
+- Command lobby uses a responsive two-column layout on wide screens (setup + workshop)
+
 ## 0.1.25 — 2026-07-21
 
 ### Changed
