@@ -987,14 +987,15 @@ export class PlanetView {
 
   /** Create/update bod meshes; motion predicted smoothly in render() */
   private syncBods(data: PlanetViewData): void {
-    this.lastBodData = data;
+    this.lastBodData = data.phase === "ended" ? { ...data, bods: [] } : data;
     const ownerColor = new Map<string, string>();
     data.players.forEach((p, i) => {
       ownerColor.set(p.id, TEAM_COLORS[i % TEAM_COLORS.length]!);
     });
     const seen = new Set<string>();
+    const bods = data.phase === "ended" ? [] : data.bods;
 
-    for (const b of data.bods) {
+    for (const b of bods) {
       seen.add(b.id);
       const serverIdx = b.pathIndex ?? 0;
       const serverCd = b.moveCooldown ?? 0;
@@ -1139,7 +1140,7 @@ export class PlanetView {
     }
 
     // Predict bod hops locally so they don't freeze at nodes waiting for 10Hz snaps
-    if (this.lastBodData) {
+    if (this.lastBodData && this.lastBodData.phase !== "ended") {
       const period = Math.max(1, this.lastBodData.bodMoveEveryTicks ?? 10);
       const endPause = Math.max(3, Math.floor(period / 2));
       const tickHz = 10;

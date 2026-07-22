@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.44 — 2026-07-22
+
+### Fixed
+
+- Clear all bods (and the build queue) when the match ends so none keep walking
+
 ## 0.1.43 — 2026-07-22
 
 ### Changed

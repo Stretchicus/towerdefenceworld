@@ -858,8 +858,7 @@ function checkWin(state: MatchState): void {
 
   if (state.settings.winRule === "last_base") {
     if (aliveTeams.size <= 1) {
-      state.phase = "ended";
-      state.winnerIds = alive.map((p) => p.id);
+      endMatch(state, alive.map((p) => p.id));
     }
     return;
   }
@@ -869,7 +868,6 @@ function checkWin(state: MatchState): void {
     state.combatEndsAtTick !== null &&
     state.tick >= state.combatEndsAtTick
   ) {
-    state.phase = "ended";
     let bestHp = -1;
     let winners: string[] = [];
     for (const p of state.players) {
@@ -880,8 +878,16 @@ function checkWin(state: MatchState): void {
         winners.push(p.id);
       }
     }
-    state.winnerIds = winners;
+    endMatch(state, winners);
   }
+}
+
+/** Freeze the board: no more combat entities after the match ends. */
+function endMatch(state: MatchState, winnerIds: string[]): void {
+  state.phase = "ended";
+  state.winnerIds = winnerIds;
+  state.bods = [];
+  state.buildQueue = [];
 }
 
 export function runAiCombat(state: MatchState): void {
