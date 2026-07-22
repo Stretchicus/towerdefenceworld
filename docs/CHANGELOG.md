@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.41 — 2026-07-22
+
+### Changed
+
+- Castle contact damage is the bod’s remaining HP (was flat `baseContactDamage`)
+
 ## 0.1.40 — 2026-07-22
 
 ### Added

@@ -819,7 +819,8 @@ export function tickMatch(state: MatchState): void {
         const target = state.players.find((p) => p.id === bod.targetPlayerId);
         const owner = state.players.find((p) => p.id === bod.ownerId);
         if (target && owner && target.teamId !== owner.teamId && target.alive) {
-          target.baseHp -= state.config.baseContactDamage;
+          // Damage equals remaining bod HP (damaged bods hit softer)
+          target.baseHp -= Math.max(0, bod.hp);
           if (target.baseHp <= 0) {
             target.baseHp = 0;
             target.alive = false;
