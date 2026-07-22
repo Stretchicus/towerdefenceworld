@@ -422,7 +422,10 @@ export class PlanetView {
   private pick(e: MouseEvent): void {
     const id = this.rayCell(e);
     if (id === null) return;
-    this.selectedCell = id;
+    // Placement-only selection highlight (combat clicks must not stick)
+    if (this.interactionMode === "placement") {
+      this.selectedCell = id;
+    }
     this.onCellClick?.(id);
   }
 
@@ -446,6 +449,9 @@ export class PlanetView {
     this.cellMeshes.clear();
     this.cellCenters.clear();
     this.interactionMode = data.interactionMode ?? "other";
+    if (this.interactionMode !== "placement") {
+      this.selectedCell = null;
+    }
 
     const placedMap = new Map(data.placed.map((p) => [p.cellId, p]));
     const routeIds = new Set(
@@ -454,7 +460,9 @@ export class PlanetView {
         .map((p) => p.cellId),
     );
     const baseSet = new Set(data.baseCellIds);
-    const legalSet = new Set(data.legalCellIds ?? []);
+    const legalSet = new Set(
+      this.interactionMode === "placement" ? (data.legalCellIds ?? []) : [],
+    );
     const corridorSet = new Set(data.corridorCellIds ?? []);
     const myBase = data.myBaseCellId ?? null;
     const towerOccupied = new Set(data.towers.map((t) => t.cellId));
@@ -508,7 +516,10 @@ export class PlanetView {
         emissive = 0x00ff88;
         emissiveIntensity = 0.85;
       }
-      if (this.selectedCell === cell.id) {
+      if (
+        this.interactionMode === "placement" &&
+        this.selectedCell === cell.id
+      ) {
         color = 0x3dd6c6;
         emissive = 0x3dd6c6;
         emissiveIntensity = 0.5;

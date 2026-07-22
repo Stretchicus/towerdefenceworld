@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.47 — 2026-07-22
+
+### Fixed
+
+- No leftover placement-style hex highlight when the match ends
+
 ## 0.1.46 — 2026-07-22
 
 ### Changed
