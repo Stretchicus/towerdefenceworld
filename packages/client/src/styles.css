@@ -609,6 +609,24 @@ button.secondary {
   border-top: 1px solid var(--line);
 }
 
+.ws-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ws-head h2 {
+  margin: 0;
+}
+
+.ws-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-shrink: 0;
+}
+
 .ws-tower-tabs {
   display: flex;
   flex-wrap: wrap;
@@ -669,6 +687,16 @@ button.secondary {
   font-size: 1.05rem;
   line-height: 1;
   font-weight: 700;
+  border-radius: 4px;
+  border: 1px solid var(--muted);
+  background: #0a1822;
+  color: var(--text);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+
+.ws-icon-btn:hover {
+  filter: brightness(1.12);
 }
 
 .ws-icon-btn .ws-ico {
@@ -686,14 +714,13 @@ button.secondary {
   margin: 0.35rem 0;
 }
 
-.ws-upload {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  border: 1px solid var(--line);
-  padding: 0.45rem 0.75rem;
-  font-size: 0.85rem;
+.ws-upload.ws-icon-btn {
+  margin: 0;
+  flex: none;
+  min-width: 2rem;
+  flex-direction: row;
+  color: var(--text);
+  font-size: inherit;
 }
 
 .ws-simple {

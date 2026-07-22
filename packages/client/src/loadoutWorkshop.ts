@@ -318,16 +318,17 @@ export function workshopHtml(state: WorkshopState): string {
   const addBtn = `<button type="button" class="ws-icon-btn" data-ws-add title="Add tower" aria-label="Add tower">+</button>`;
   const defaultsBtn = `<button type="button" class="ws-icon-btn" data-ws-defaults title="Reset to defaults" aria-label="Reset to defaults"><svg class="ws-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 2a6 6 0 1 0 5.65 4H12a4.5 4.5 0 1 1-3.15-4.2V4.5L12 2.5 8 1v1z"/></svg></button>`;
   const removeBtn = `<button type="button" class="ws-icon-btn ws-icon-danger" data-ws-remove title="Remove tower" aria-label="Remove tower" ${state.towers.length <= 1 ? "disabled" : ""}><svg class="ws-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6 2h4l.5 1H14v1.5H2V3h3.5L6 2zm1 4v6H5.5V6H7zm2.5 0v6H8V6h1.5zm2.5 0v6H11V6h1zM3.5 5h9l-.7 9.2A1.5 1.5 0 0 1 10.3 15.5H5.7a1.5 1.5 0 0 1-1.5-1.3L3.5 5z"/></svg></button>`;
+  const downloadBtn = `<button type="button" class="ws-icon-btn" data-ws-download title="Download loadout" aria-label="Download loadout"><svg class="ws-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 1.5v7.3L5.4 6.2 4.3 7.3 8 11l3.7-3.7-1.1-1.1L9 8.8V1.5H8zM3 12.5V14h10v-1.5H3z"/></svg></button>`;
+  const uploadBtn = `<label class="ws-icon-btn ws-upload" title="Upload loadout" aria-label="Upload loadout"><input type="file" accept="application/json,.json" data-ws-upload hidden /><svg class="ws-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 11V3.7l2.6 2.6 1.1-1.1L8 1.5 4.3 5.2l1.1 1.1L7 3.7V11h1zM3 12.5V14h10v-1.5H3z"/></svg></label>`;
 
   return `<div class="workshop" id="tower-workshop">
-    <h2>TOWER WORKSHOP</h2>
+    <div class="ws-head">
+      <h2>TOWER WORKSHOP</h2>
+      <div class="ws-head-actions">${downloadBtn}${uploadBtn}</div>
+    </div>
     <p class="hint">${state.resourceCount} resources · 100 points per tower · derived costs · Ready blocked if invalid</p>
     <div class="ws-tower-tabs">${towerTabs || `<span class="hint">Empty</span>`}${addBtn}${defaultsBtn}</div>
-    <div class="row ws-actions">
-      ${removeBtn}
-      <button type="button" class="secondary" data-ws-download>Download</button>
-      <label class="ws-upload secondary"><input type="file" accept="application/json,.json" data-ws-upload hidden />Upload</label>
-    </div>
+    <div class="row ws-actions">${removeBtn}</div>
     ${editors}
     ${
       errors.length

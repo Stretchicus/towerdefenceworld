@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.31 — 2026-07-22
+
+### Changed
+
+- Workshop download/upload are icon buttons beside the TOWER WORKSHOP heading
+
 ## 0.1.30 — 2026-07-22
 
 ### Changed
