@@ -342,6 +342,8 @@ describe("match combat", () => {
   it("slider maxes fit pool when other stats are at minimum", () => {
     assert.equal(maxSliderValue("power", 2), 17);
     assert.equal(maxSliderValue("range", 2), 6);
+    assert.equal(maxSliderValue("buildDiscount", 2), 8);
+    assert.equal(maxSliderValue("upgradeDiscount", 2), 3);
     assert.equal(maxSliderValue("power", 3), 15);
     assert.equal(maxSliderValue("range", 3), 5);
     assert.equal(maxSliderValue("fireRate", 3), 10);
@@ -389,8 +391,6 @@ describe("match combat", () => {
         assert.ok(scoreTowerPoints(t, n) <= TOWER_POINT_POOL);
         if (n === 2) {
           assert.equal(t.fireRate, 6);
-          assert.equal(t.buildDiscount, 0);
-          assert.equal(t.upgradeDiscount, 0);
           assert.equal(t.buildCost.water, undefined);
         } else {
           assert.ok((t.buildCost.water ?? 0) > 0 || t.fireRate >= 1);
@@ -461,11 +461,11 @@ describe("match combat", () => {
       water: 23,
     });
 
-    const v2 = validateLoadout([{ ...raw, fireRate: 10, buildDiscount: 5 }], 2);
+    const v2 = validateLoadout([{ ...raw, fireRate: 10, buildDiscount: 2 }], 2);
     assert.equal(v2.ok, true);
     if (!v2.ok) return;
     assert.equal(v2.towers[0]!.fireRate, 6);
-    assert.equal(v2.towers[0]!.buildDiscount, 0);
+    assert.equal(v2.towers[0]!.buildDiscount, 2);
     assert.equal(v2.towers[0]!.upgradeDiscount, 0);
     assert.equal(v2.towers[0]!.buildCost.water, undefined);
   });

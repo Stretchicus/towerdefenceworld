@@ -100,7 +100,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.33";
+const CLIENT_BUILD = "v0.1.34";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -525,7 +525,7 @@ function renderLobby(): void {
             </label>
             <label>Resources
               <select id="res">
-                ${[2, 3, 4, 5]
+                ${[2, 3]
                   .map(
                     (n) =>
                       `<option value="${n}" ${s.settings.resourceCount === n ? "selected" : ""}>${n}</option>`,

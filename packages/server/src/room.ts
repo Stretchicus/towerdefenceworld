@@ -297,6 +297,10 @@ export function handleMessage(
           2,
           Math.min(4, room.settings.seatCount),
         );
+        room.settings.resourceCount = Math.max(
+          2,
+          Math.min(3, room.settings.resourceCount),
+        );
         if (room.settings.mode === "teams" && room.settings.seatCount === 3) {
           room.settings.mode = "ffa";
         }

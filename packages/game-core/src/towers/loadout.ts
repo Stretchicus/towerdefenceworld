@@ -27,7 +27,7 @@ export const SLIDER_MIN: Record<SliderStatField, number> = {
   upgradeDiscount: 0,
 };
 
-/** Absolute caps for fields wiped/ignored when resourceCount < 3. */
+/** Absolute caps for fields not active at the current resourceCount. */
 const SLIDER_ABS_MAX: Record<SliderStatField, number> = {
   power: 20,
   range: 6,
@@ -47,9 +47,10 @@ export type LoadoutValidationResult =
 export function allowedSliderFields(
   resourceCount: number,
 ): SliderStatField[] {
+  // Discounts available at 2+; fire rate only when water (3rd resource) exists.
   return resourceCount >= 3
     ? ["power", "range", "fireRate", "buildDiscount", "upgradeDiscount"]
-    : ["power", "range"];
+    : ["power", "range", "buildDiscount", "upgradeDiscount"];
 }
 
 /**
@@ -87,12 +88,13 @@ export function scoreTowerPointsRaw(
   def: TowerDef,
   resourceCount: number,
 ): number {
-  let s = def.power * 5 + def.range * 15;
+  let s =
+    def.power * 5 +
+    def.range * 15 +
+    def.buildDiscount * 10 +
+    def.upgradeDiscount * 25;
   if (resourceCount >= 3) {
-    s +=
-      def.fireRate * 8 +
-      def.buildDiscount * 10 +
-      def.upgradeDiscount * 25;
+    s += def.fireRate * 8;
   }
   return s;
 }
@@ -143,8 +145,6 @@ export function normalizeTowerForResources(
   const next = structuredClone(def);
   if (resourceCount < 3) {
     next.fireRate = BASELINE_FIRE_RATE;
-    next.buildDiscount = 0;
-    next.upgradeDiscount = 0;
   }
   const costs = deriveTowerCosts(next, resourceCount);
   next.buildCost = costs.buildCost;

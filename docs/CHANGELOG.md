@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.34 — 2026-07-22
+
+### Changed
+
+- Two-resource workshops keep build/upgrade discount sliders (only fire rate is 3-resource)
+- Resources dropdown temporarily limited to 2 and 3
+
 ## 0.1.33 — 2026-07-22
 
 ### Changed
