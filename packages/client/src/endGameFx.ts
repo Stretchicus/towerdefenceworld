@@ -95,7 +95,7 @@ function makeFireworks(
 
   const tmp = new THREE.Vector3();
   const dir = new THREE.Vector3();
-  const GRAVITY = -0.85;
+  const GRAVITY = -0.62;
 
   function spawnMortar(): void {
     if (mortars.length >= maxMortars) return;
@@ -108,7 +108,8 @@ function makeFireworks(
       .addScaledVector(tangent, Math.sin(lean) * Math.cos(yaw))
       .addScaledVector(bitangent, Math.sin(lean) * Math.sin(yaw))
       .normalize();
-    const speed = 0.48 + Math.random() * 0.22;
+    // Higher apex over the castle (~0.55–0.85 world units)
+    const speed = 0.82 + Math.random() * 0.28;
     mortars.push({
       pos: launch.clone().addScaledVector(
         tangent,
@@ -212,7 +213,7 @@ function makeFireworks(
         m.pos.addScaledVector(m.vel, dt);
         // Burst at apex (upward speed gone) after a short climb
         const climb = m.vel.dot(up);
-        if ((climb <= 0.04 && m.age > 0.28) || m.age > 1.6) {
+        if ((climb <= 0.04 && m.age > 0.35) || m.age > 2.2) {
           burst(m.pos);
           mortars.splice(i, 1);
         }

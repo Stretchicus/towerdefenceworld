@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.45 — 2026-07-22
+
+### Fixed
+
+- Empty tower pads are raised plinths with flat rings (correct face orientation)
+- Hide “Upgrade base” after the match ends
+
+### Changed
+
+- Winner fireworks climb higher before bursting
+
 ## 0.1.44 — 2026-07-22
 
 ### Fixed

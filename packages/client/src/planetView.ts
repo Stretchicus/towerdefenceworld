@@ -185,6 +185,15 @@ export class PlanetView {
   /** Must match vertex scale used when building cell meshes in setPlanet */
   private static readonly FACE_SCALE = 1.002;
   private static readonly Y_UP = new THREE.Vector3(0, 1, 0);
+  private static readonly Z_UP = new THREE.Vector3(0, 0, 1);
+
+  /** Flat on the cell face (torus / disc default axis is +Z). */
+  private cellFlatQuat(outward: THREE.Vector3): THREE.Quaternion {
+    return new THREE.Quaternion().setFromUnitVectors(
+      PlanetView.Z_UP,
+      outward,
+    );
+  }
 
   /** Pose on the flat cell face (not the radial sphere bump), so props sit on the tile. */
   private cellFacePose(
@@ -767,39 +776,65 @@ export class PlanetView {
     const mineCells = new Set(data.mines.map((m) => m.cellId));
     const R = PlanetView.SURFACE;
 
-    // Empty tower pads — bright cyan rings (clickable)
+    // Empty tower pads — raised cyan plinth + ring (must lie flat on the face)
     for (const placed of data.placed) {
       if (!placed.tile.hasTowerPoint || towerCells.has(placed.cellId)) continue;
       const cell = cellMap.get(placed.cellId);
       if (!cell) continue;
-      // Tube radius 0.012 — lift clear of the hex face so the ring isn't buried
-      const { pos, quat } = this.cellFacePose(cell, 0.018);
+      const { pos, quat, outward } = this.cellFacePose(cell, 0.006);
+      const flatQuat = this.cellFlatQuat(outward);
+
+      const plinthMat = new THREE.MeshStandardMaterial({
+        color: 0x145050,
+        emissive: 0x3dd6c6,
+        emissiveIntensity: 0.75,
+        metalness: 0.2,
+        roughness: 0.45,
+        polygonOffset: true,
+        polygonOffsetFactor: -2,
+        polygonOffsetUnits: -2,
+      });
+      const plinth = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.048, 0.055, 0.016, 20),
+        plinthMat,
+      );
+      plinth.position.copy(pos).addScaledVector(outward, 0.008);
+      plinth.quaternion.copy(quat);
+      plinth.userData.cellId = placed.cellId;
+      this.markers.add(plinth);
+
       const ring = new THREE.Mesh(
-        new THREE.TorusGeometry(0.055, 0.012, 8, 20),
+        new THREE.TorusGeometry(0.052, 0.01, 10, 28),
         new THREE.MeshStandardMaterial({
-          color: 0x3dd6c6,
+          color: 0x7bffe8,
           emissive: 0x3dd6c6,
-          emissiveIntensity: 0.9,
+          emissiveIntensity: 1.15,
+          metalness: 0.15,
+          roughness: 0.35,
+          polygonOffset: true,
+          polygonOffsetFactor: -3,
+          polygonOffsetUnits: -3,
         }),
       );
-      ring.position.copy(pos);
-      ring.quaternion.copy(quat);
-      ring.rotateX(Math.PI / 2);
+      ring.position.copy(pos).addScaledVector(outward, 0.018);
+      ring.quaternion.copy(flatQuat);
       ring.userData.cellId = placed.cellId;
       this.markers.add(ring);
 
       const pad = new THREE.Mesh(
-        new THREE.CircleGeometry(0.04, 16),
+        new THREE.CircleGeometry(0.038, 20),
         new THREE.MeshStandardMaterial({
-          color: 0x0a3030,
+          color: 0x0a2828,
           emissive: 0x1a6060,
-          emissiveIntensity: 0.6,
+          emissiveIntensity: 0.85,
           side: THREE.DoubleSide,
+          polygonOffset: true,
+          polygonOffsetFactor: -2,
+          polygonOffsetUnits: -2,
         }),
       );
-      pad.position.copy(pos);
-      pad.quaternion.copy(quat);
-      pad.rotateX(Math.PI / 2);
+      pad.position.copy(pos).addScaledVector(outward, 0.017);
+      pad.quaternion.copy(flatQuat);
       pad.userData.cellId = placed.cellId;
       this.markers.add(pad);
     }

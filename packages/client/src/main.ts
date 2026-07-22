@@ -108,7 +108,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.44";
+const CLIENT_BUILD = "v0.1.45";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -1093,12 +1093,16 @@ function renderMatch(): void {
     </div>
     <div class="panel side-right">
       ${buildList}
-      <div class="row" style="margin-top:0.75rem">
+      ${
+        m.phase === "combat"
+          ? `<div class="row" style="margin-top:0.75rem">
         <button id="btn-upgrade-base" class="secondary" ${affordBase ? "" : "disabled"}>
           <span class="btn-label">Upgrade base (L${(self?.baseLevel ?? 0) + 1})</span>
           <span class="cost-row">${costChipsHtml(baseCost, affordBase)}</span>
         </button>
-      </div>
+      </div>`
+          : ""
+      }
       ${
         m.phase === "ended"
           ? `<p>Winners: ${m.winnerIds.map((id) => m.players.find((p) => p.id === id)?.name ?? id).join(", ")}</p>
