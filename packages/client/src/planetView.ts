@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { EndGameCastleFx, type CastleFxSpec } from "./endGameFx.js";
 import { createTowerVisual, tickTowerVisual } from "./towerVisuals.js";
 
 export interface CellView {
@@ -37,6 +38,9 @@ export interface PlanetViewData {
   corridorCellIds?: number[];
   myBaseCellId?: number | null;
   interactionMode?: "placement" | "combat" | "other";
+  /** When "ended", castles get fireworks (winners) or flames (losers). */
+  phase?: string;
+  winnerIds?: string[];
 }
 
 const TEAM_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
@@ -157,6 +161,7 @@ export class PlanetView {
   private markers = new THREE.Group();
   private pathGroup = new THREE.Group();
   private bodGroup = new THREE.Group();
+  private readonly endGameFx = new EndGameCastleFx();
   private lastBodData: PlanetViewData | null = null;
   private lastFrameMs = performance.now();
   private localCooldownRemain = new Map<string, number>();
@@ -235,6 +240,7 @@ export class PlanetView {
     this.pivot.add(this.pathGroup);
     this.pivot.add(this.markers);
     this.pivot.add(this.bodGroup);
+    this.pivot.add(this.endGameFx.group);
     this.scene.add(this.pivot);
     this.updateCamera();
 
@@ -722,6 +728,8 @@ export class PlanetView {
         .join(","),
       data.players.map((p) => `${p.id}:${p.baseCellId}:${p.alive}`).join(","),
       data.myBaseCellId ?? "",
+      data.phase ?? "",
+      (data.winnerIds ?? []).join(","),
     ].join("|");
   }
 
@@ -745,6 +753,7 @@ export class PlanetView {
     }
     this.markersKey = key;
     this.clearGroup(this.markers);
+    this.endGameFx.clear();
 
     const cellMap = new Map(data.cells.map((c) => [c.id, c]));
     const ownerColor = new Map<string, string>();
@@ -842,13 +851,31 @@ export class PlanetView {
 
     this.syncBods(data);
 
+    const ended = data.phase === "ended";
+    const winners = new Set(data.winnerIds ?? []);
+    const fxSpecs: CastleFxSpec[] = [];
+
     for (const p of data.players) {
       const cell = cellMap.get(p.baseCellId);
       if (!cell) continue;
       const isMine = data.myBaseCellId === p.baseCellId;
-      const color = isMine ? "#e8dcc8" : (ownerColor.get(p.id) ?? "#c4b8a8");
-      const emissive = isMine ? "#8a7a50" : p.alive ? 0x221810 : 0x550000;
-      const castle = this.makeCastle(color, emissive, isMine ? 0.45 : 0.25);
+      const isWinner = ended && winners.has(p.id);
+      const isBurning = ended && !isWinner;
+      const team = ownerColor.get(p.id) ?? "#c4b8a8";
+      const color = isBurning
+        ? "#3a1a12"
+        : isMine
+          ? "#e8dcc8"
+          : team;
+      const emissive = isBurning
+        ? 0xaa2808
+        : isMine
+          ? "#8a7a50"
+          : p.alive
+            ? 0x221810
+            : 0x550000;
+      const emissiveIntensity = isBurning ? 0.9 : isMine ? 0.45 : 0.25;
+      const castle = this.makeCastle(color, emissive, emissiveIntensity);
       const { pos, quat, outward } = this.cellFacePose(cell, 0.004);
       castle.position.copy(pos);
       castle.scale.setScalar(0.85);
@@ -859,7 +886,16 @@ export class PlanetView {
       });
       this.markers.add(castle);
 
-      if (isMine) {
+      if (ended) {
+        fxSpecs.push({
+          origin: pos.clone(),
+          outward: outward.clone(),
+          mode: isWinner ? "win" : "lose",
+          teamColor: team,
+        });
+      }
+
+      if (isMine && !isBurning) {
         const ring = new THREE.Mesh(
           new THREE.TorusGeometry(0.11, 0.01, 8, 24),
           new THREE.MeshStandardMaterial({
@@ -875,6 +911,8 @@ export class PlanetView {
         this.markers.add(ring);
       }
     }
+
+    this.endGameFx.setCastles(fxSpecs);
   }
 
   /** Low-poly castle: keep + corner towers + battlements */
@@ -1130,6 +1168,8 @@ export class PlanetView {
     for (const child of this.markers.children) {
       if (child.userData.towerAnim) tickTowerVisual(child, tSec);
     }
+
+    this.endGameFx.update(dt);
 
     this.renderer.render(this.scene, this.camera);
   }

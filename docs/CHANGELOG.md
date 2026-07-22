@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.40 — 2026-07-22
+
+### Added
+
+- End-game: winning castles launch looping fireworks; losing castles burn with flames
+
 ## 0.1.39 — 2026-07-22
 
 ### Fixed

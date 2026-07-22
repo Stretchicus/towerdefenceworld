@@ -108,7 +108,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.39";
+const CLIENT_BUILD = "v0.1.40";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -1136,6 +1136,8 @@ function renderMatch(): void {
         : m.phase === "combat"
           ? "combat"
           : "other",
+    phase: m.phase,
+    winnerIds: m.winnerIds ?? [],
   };
   const planetKey = `${m.planet.cells.length}:${m.phase}:${myTurn ? legalCellIds.join(",") : ""}:${self?.baseCellId ?? ""}`;
   if (planetBuiltFor !== planetKey) {
