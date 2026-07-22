@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.39 — 2026-07-22
+
+### Fixed
+
+- Pads sit above the hex face (not sunk); castles seat on the pentagon face like towers
+
 ## 0.1.38 — 2026-07-22
 
 ### Fixed

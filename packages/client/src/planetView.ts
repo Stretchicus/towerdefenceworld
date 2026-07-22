@@ -179,8 +179,11 @@ export class PlanetView {
   private static readonly SURFACE = 1.012;
   private static readonly Y_UP = new THREE.Vector3(0, 1, 0);
 
-  /** Pose on the flat hex face (not the radial sphere bump), so props sit on the tile. */
-  private cellFacePose(cell: CellView): {
+  /** Pose on the flat cell face (not the radial sphere bump), so props sit on the tile. */
+  private cellFacePose(
+    cell: CellView,
+    lift = 0.003,
+  ): {
     pos: THREE.Vector3;
     outward: THREE.Vector3;
     quat: THREE.Quaternion;
@@ -194,8 +197,7 @@ export class PlanetView {
     const n = cell.vertices.length || 1;
     face.multiplyScalar(1 / n);
     const outward = face.clone().normalize();
-    // Tiny lift to avoid z-fighting with the hex mesh
-    const pos = face.clone().addScaledVector(outward, 0.003);
+    const pos = face.clone().addScaledVector(outward, lift);
     const quat = new THREE.Quaternion().setFromUnitVectors(
       PlanetView.Y_UP,
       outward,
@@ -758,7 +760,7 @@ export class PlanetView {
       if (!placed.tile.hasTowerPoint || towerCells.has(placed.cellId)) continue;
       const cell = cellMap.get(placed.cellId);
       if (!cell) continue;
-      const { pos, quat } = this.cellFacePose(cell);
+      const { pos, quat } = this.cellFacePose(cell, 0.014);
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.055, 0.012, 8, 20),
         new THREE.MeshStandardMaterial({
@@ -847,14 +849,10 @@ export class PlanetView {
       const color = isMine ? "#e8dcc8" : (ownerColor.get(p.id) ?? "#c4b8a8");
       const emissive = isMine ? "#8a7a50" : p.alive ? 0x221810 : 0x550000;
       const castle = this.makeCastle(color, emissive, isMine ? 0.45 : 0.25);
-      const outward = new THREE.Vector3(
-        cell.center.x,
-        cell.center.y,
-        cell.center.z,
-      ).normalize();
-      castle.position.copy(outward).multiplyScalar(R);
+      const { pos, quat, outward } = this.cellFacePose(cell, 0.004);
+      castle.position.copy(pos);
       castle.scale.setScalar(0.85);
-      castle.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), outward);
+      castle.quaternion.copy(quat);
       castle.userData.cellId = p.baseCellId;
       castle.traverse((obj) => {
         obj.userData.cellId = p.baseCellId;
@@ -870,8 +868,9 @@ export class PlanetView {
             emissiveIntensity: 0.55,
           }),
         );
-        ring.position.copy(outward).multiplyScalar(R * 0.998);
-        ring.lookAt(0, 0, 0);
+        ring.position.copy(pos).addScaledVector(outward, 0.008);
+        ring.quaternion.copy(quat);
+        ring.rotateX(Math.PI / 2);
         ring.userData.cellId = p.baseCellId;
         this.markers.add(ring);
       }
