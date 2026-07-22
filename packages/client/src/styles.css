@@ -308,6 +308,9 @@ button:disabled {
 }
 
 .cost-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
   font-size: 0.68rem;
   font-weight: 600;
   letter-spacing: 0.02em;
@@ -326,6 +329,23 @@ button:disabled {
 .cost-chip.short {
   color: var(--danger);
   border-color: rgba(232, 93, 93, 0.45);
+}
+
+.res-amt {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+}
+
+.res-ico {
+  width: 0.85rem;
+  height: 0.85rem;
+  flex-shrink: 0;
+  display: block;
+}
+
+.res-num {
+  font-variant-numeric: tabular-nums;
 }
 
 .chip.cant-afford {
@@ -775,15 +795,73 @@ button.secondary {
   gap: 0.4rem;
 }
 
-.bod-row {
+.bod-chip {
   display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
 }
 
-.bod-up-btn {
-  font-size: 0.75rem;
+.bod-toggle {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.15rem;
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
   text-align: left;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.bod-toggle:hover {
+  filter: brightness(1.08);
+}
+
+.bod-name {
+  text-transform: capitalize;
+}
+
+.bod-up-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1rem;
+  min-width: 3.4rem;
+  margin: 0;
+  padding: 0.3rem 0.4rem;
+  border: none;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(0, 0, 0, 0.25);
+  color: inherit;
+  font: inherit;
+  font-size: 0.7rem;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.bod-up-slot:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+
+.bod-up-slot:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.bod-up-lvl {
+  letter-spacing: 0.04em;
 }
 
 @media (max-width: 720px) {

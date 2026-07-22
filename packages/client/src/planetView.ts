@@ -22,6 +22,9 @@ export interface PlanetViewData {
     id: string;
     cellId: number;
     ownerId: string;
+    typeId?: string;
+    hp?: number;
+    maxHp?: number;
     path?: number[];
     pathIndex?: number;
     moveCooldown?: number;
@@ -36,6 +39,31 @@ export interface PlanetViewData {
 }
 
 const TEAM_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
+const BOD_RADIUS = 0.055;
+const Y_UP = new THREE.Vector3(0, 1, 0);
+
+function shadeBodColor(ownerHex: string, typeId: string | undefined): string {
+  const c = new THREE.Color(ownerHex);
+  if (typeId === "grunt") {
+    c.lerp(new THREE.Color("#ffffff"), 0.34);
+  } else if (typeId === "bruiser") {
+    c.multiplyScalar(0.62);
+  }
+  return `#${c.getHexString()}`;
+}
+
+function bodHpRatio(b: { hp?: number; maxHp?: number }): number {
+  const max = b.maxHp ?? 1;
+  const hp = b.hp ?? max;
+  if (max <= 0) return 1;
+  return Math.min(1, Math.max(0.06, hp / max));
+}
+
+function bodSphereGeometry(ratio: number): THREE.SphereGeometry {
+  const thetaStart = (1 - ratio) * Math.PI;
+  const thetaLength = ratio * Math.PI;
+  return new THREE.SphereGeometry(BOD_RADIUS, 12, 10, 0, Math.PI * 2, thetaStart, thetaLength);
+}
 
 export class PlanetView {
   readonly scene = new THREE.Scene();
@@ -854,17 +882,33 @@ export class PlanetView {
       let mesh = this.bodGroup.children.find(
         (c) => c.userData.bodId === b.id,
       ) as THREE.Mesh | undefined;
+      const ratio = bodHpRatio(b);
+      const base = ownerColor.get(b.ownerId) ?? "#ffffff";
+      const tint = shadeBodColor(base, b.typeId);
       if (!mesh) {
         mesh = new THREE.Mesh(
-          new THREE.SphereGeometry(0.055, 10, 10),
+          bodSphereGeometry(ratio),
           new THREE.MeshStandardMaterial({
-            color: ownerColor.get(b.ownerId) ?? "#fff",
-            emissive: ownerColor.get(b.ownerId) ?? "#fff",
+            color: tint,
+            emissive: tint,
             emissiveIntensity: 0.85,
           }),
         );
         mesh.userData.bodId = b.id;
+        mesh.userData.hpRatio = ratio;
+        mesh.userData.typeId = b.typeId;
         this.bodGroup.add(mesh);
+      } else {
+        const prev = mesh.userData.hpRatio as number | undefined;
+        if (prev === undefined || Math.abs(prev - ratio) > 0.02) {
+          mesh.geometry.dispose();
+          mesh.geometry = bodSphereGeometry(ratio);
+          mesh.userData.hpRatio = ratio;
+        }
+        const mat = mesh.material as THREE.MeshStandardMaterial;
+        mat.color.set(tint);
+        mat.emissive.set(tint);
+        mesh.userData.typeId = b.typeId;
       }
     }
 
@@ -911,7 +955,11 @@ export class PlanetView {
     const z = az + (bz - az) * t;
     const len = Math.hypot(x, y, z) || 1;
     const s = PlanetView.SURFACE;
-    mesh.position.set((x / len) * s, (y / len) * s, (z / len) * s);
+    const ox = x / len;
+    const oy = y / len;
+    const oz = z / len;
+    mesh.position.set(ox * s, oy * s, oz * s);
+    mesh.quaternion.setFromUnitVectors(Y_UP, new THREE.Vector3(ox, oy, oz));
   }
 
   render(): void {

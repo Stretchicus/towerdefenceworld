@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.1.35 — 2026-07-22
+
+### Changed
+
+- Bods show remaining HP as a top-truncated sphere; grunt/bruiser are lighter/darker owner shades
+- Bod upgrade control sits inside the spawn toggle chip
+- Resource amounts use icons (stone / power / water) instead of text names
+- Building: one tap on a free pad opens the tower type picker
+
 ## 0.1.34 — 2026-07-22
 
 ### Changed

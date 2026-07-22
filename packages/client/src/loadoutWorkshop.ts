@@ -14,6 +14,7 @@ import {
   type SliderStatField,
   type TowerDef,
 } from "@tdw/game-core";
+import { resourceAmountHtml } from "./resourceIcons.js";
 
 export type SliderField = SliderStatField;
 
@@ -210,7 +211,10 @@ function escapeHtml(s: string): string {
 
 function costChips(cost: Record<string, number>): string {
   return Object.entries(cost)
-    .map(([resource, amount]) => `<span class="chip">${resource} ${amount}</span>`)
+    .map(
+      ([resource, amount]) =>
+        `<span class="chip">${resourceAmountHtml(resource, amount)}</span>`,
+    )
     .join("");
 }
 

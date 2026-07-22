@@ -9,6 +9,7 @@ import {
   type WorkshopState,
 } from "./loadoutWorkshop.js";
 import type { TowerDef } from "@tdw/game-core";
+import { resourceAmountHtml } from "./resourceIcons.js";
 
 interface LobbyState {
   phase: "lobby";
@@ -83,6 +84,9 @@ interface MatchState {
     id: string;
     cellId: number;
     ownerId: string;
+    typeId?: string;
+    hp?: number;
+    maxHp?: number;
     path?: number[];
     pathIndex?: number;
     moveCooldown?: number;
@@ -100,7 +104,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.34";
+const CLIENT_BUILD = "v0.1.35";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -345,7 +349,7 @@ function costChipsHtml(cost: Record<string, number>, afford: boolean): string {
   return Object.entries(cost)
     .map(
       ([k, v]) =>
-        `<span class="cost-chip ${afford ? "ok" : "short"}">${k} ${v}</span>`,
+        `<span class="cost-chip ${afford ? "ok" : "short"}">${resourceAmountHtml(k, v)}</span>`,
     )
     .join("");
 }
@@ -644,14 +648,16 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
     });
   });
   hud.querySelectorAll("[data-bod]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
       const id = (btn as HTMLElement).dataset.bod!;
       const on = self?.bodEnabled[id];
       socket.send({ type: "toggleBod", bodTypeId: id, enabled: !on });
     });
   });
   hud.querySelectorAll("[data-bod-up]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
       if ((btn as HTMLButtonElement).disabled) return;
       const bodTypeId = (btn as HTMLElement).dataset.bodUp!;
       socket.send({
@@ -664,17 +670,8 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
     btn.addEventListener("click", () => {
       const cellId = Number((btn as HTMLElement).dataset.build);
       if (!Number.isFinite(cellId) || !lastMatch) return;
-      if (selectedBuildCell === cellId && showTypePicker) {
-        return;
-      }
-      if (selectedBuildCell === cellId) {
-        showTypePicker = true;
-        lastError = "";
-        paint();
-        return;
-      }
       selectedBuildCell = cellId;
-      showTypePicker = false;
+      showTypePicker = true;
       lastError = "";
       planet.focusCell(cellId);
       paint();
@@ -738,7 +735,10 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
   const bankEl = document.getElementById("bank-live");
   if (bankEl && self) {
     bankEl.innerHTML = Object.entries(self.bank)
-      .map(([k, v]) => `<span class="chip">${k}: ${v.toFixed(1)}</span>`)
+      .map(
+        ([k, v]) =>
+          `<span class="chip">${resourceAmountHtml(k, v.toFixed(1))}</span>`,
+      )
       .join("");
   }
   const phaseEl = document.getElementById("phase-live");
@@ -766,12 +766,9 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
   const padHint = document.getElementById("pad-hint");
   if (padHint) {
     if (selectedBuildCell === null) {
-      padHint.textContent =
-        "Tap a pad to focus · tap again to choose tower type";
-    } else if (showTypePicker) {
-      padHint.textContent = `Pad #${selectedBuildCell} — pick a tower type`;
+      padHint.textContent = "Tap a free pad to choose a tower type";
     } else {
-      padHint.textContent = `Pad #${selectedBuildCell} selected — tap again for types`;
+      padHint.textContent = `Pad #${selectedBuildCell} — pick a tower type`;
     }
   }
   const typePicker = document.getElementById("type-picker");
@@ -834,9 +831,13 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
   hud.querySelectorAll("[data-bod]").forEach((btn) => {
     const el = btn as HTMLElement;
     const id = el.dataset.bod!;
+    const on = self?.bodEnabled[id];
     const cost = costs.bods[id] ?? {};
     const afford = self ? canAffordCost(self.bank, cost) : false;
-    el.classList.toggle("cant-afford", !afford);
+    const chip = el.closest(".bod-chip");
+    chip?.classList.toggle("on", !!on);
+    chip?.classList.toggle("off", !on);
+    chip?.classList.toggle("cant-afford", !afford);
     const chips = el.querySelector(".cost-row");
     if (chips) chips.innerHTML = costChipsHtml(cost, afford);
   });
@@ -849,8 +850,8 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
     el.disabled = !afford;
     const chips = el.querySelector(".cost-row");
     if (chips) chips.innerHTML = costChipsHtml(upCost, afford);
-    const label = el.querySelector(".btn-label");
-    if (label) label.textContent = `Upgrade ${id} (L${level + 1})`;
+    const lvl = el.querySelector(".bod-up-lvl");
+    if (lvl) lvl.textContent = `L${level + 1}`;
   });
 
   updateHealthBar(m);
@@ -932,13 +933,13 @@ function renderMatch(): void {
             const level = self.bodLevels?.[id] ?? 0;
             const upCost = bodUpgradeCost(m, id, level);
             const affordUp = canAffordCost(self.bank, upCost);
-            return `<div class="bod-row">
-              <button class="chip ${on ? "on" : "off"} ${afford ? "" : "cant-afford"}" data-bod="${id}">
-                <span>${id}</span>
+            return `<div class="bod-chip chip ${on ? "on" : "off"} ${afford ? "" : "cant-afford"}">
+              <button type="button" class="bod-toggle" data-bod="${id}">
+                <span class="bod-name">${id}</span>
                 <span class="cost-row">${costChipsHtml(cost, afford)}</span>
               </button>
-              <button type="button" class="secondary bod-up-btn" data-bod-up="${id}" ${affordUp ? "" : "disabled"}>
-                <span class="btn-label">Upgrade ${id} (L${level + 1})</span>
+              <button type="button" class="bod-up-slot" data-bod-up="${id}" title="Upgrade ${id}" aria-label="Upgrade ${id}" ${affordUp ? "" : "disabled"}>
+                <span class="bod-up-lvl">L${level + 1}</span>
                 <span class="cost-row">${costChipsHtml(upCost, affordUp)}</span>
               </button>
             </div>`;
@@ -970,10 +971,8 @@ function renderMatch(): void {
         ? `<h2>BUILD TOWER</h2>
       <p class="hint" id="pad-hint">${
         selectedBuildCell === null
-          ? "Tap a pad to focus · tap again to choose tower type"
-          : showTypePicker
-            ? `Pad #${selectedBuildCell} — pick a tower type`
-            : `Pad #${selectedBuildCell} selected — tap again for types`
+          ? "Tap a free pad to choose a tower type"
+          : `Pad #${selectedBuildCell} — pick a tower type`
       }</p>
       ${typePickerHtml}
       <div class="pad-rail" id="pad-rail">
@@ -1053,7 +1052,10 @@ function renderMatch(): void {
       <div class="bank" id="bank-live">${
         self
           ? Object.entries(self.bank)
-              .map(([k, v]) => `<span class="chip">${k}: ${v.toFixed(1)}</span>`)
+              .map(
+                ([k, v]) =>
+                  `<span class="chip">${resourceAmountHtml(k, v.toFixed(1))}</span>`,
+              )
               .join("")
           : ""
       }</div>
@@ -1134,14 +1136,8 @@ planet.onCellClick = (cellId) => {
     const placed = lastMatch.placed.find((p) => p.cellId === cellId);
     const hasTower = lastMatch.towers.some((t) => t.cellId === cellId);
     if (placed?.tile.hasTowerPoint && !hasTower) {
-      if (selectedBuildCell === cellId) {
-        showTypePicker = true;
-        lastError = "";
-        paint();
-        return;
-      }
       selectedBuildCell = cellId;
-      showTypePicker = false;
+      showTypePicker = true;
       lastError = "";
       planet.focusCell(cellId);
       paint();
