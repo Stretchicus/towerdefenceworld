@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.38 — 2026-07-22
+
+### Fixed
+
+- Towers and pads sit on the hex face (no longer float on the sphere radius)
+
 ## 0.1.37 — 2026-07-22
 
 ### Added

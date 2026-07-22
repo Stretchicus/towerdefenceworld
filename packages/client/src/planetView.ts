@@ -177,6 +177,31 @@ export class PlanetView {
   private cellCenters = new Map<number, THREE.Vector3>();
   /** Gameplay sits on the hex surface — not the atmosphere shell */
   private static readonly SURFACE = 1.012;
+  private static readonly Y_UP = new THREE.Vector3(0, 1, 0);
+
+  /** Pose on the flat hex face (not the radial sphere bump), so props sit on the tile. */
+  private cellFacePose(cell: CellView): {
+    pos: THREE.Vector3;
+    outward: THREE.Vector3;
+    quat: THREE.Quaternion;
+  } {
+    const face = new THREE.Vector3();
+    for (const v of cell.vertices) {
+      face.x += v.x;
+      face.y += v.y;
+      face.z += v.z;
+    }
+    const n = cell.vertices.length || 1;
+    face.multiplyScalar(1 / n);
+    const outward = face.clone().normalize();
+    // Tiny lift to avoid z-fighting with the hex mesh
+    const pos = face.clone().addScaledVector(outward, 0.003);
+    const quat = new THREE.Quaternion().setFromUnitVectors(
+      PlanetView.Y_UP,
+      outward,
+    );
+    return { pos, outward, quat };
+  }
   private static readonly _q = new THREE.Quaternion();
   private static readonly _axis = new THREE.Vector3();
   private static readonly _v = new THREE.Vector3();
@@ -733,6 +758,7 @@ export class PlanetView {
       if (!placed.tile.hasTowerPoint || towerCells.has(placed.cellId)) continue;
       const cell = cellMap.get(placed.cellId);
       if (!cell) continue;
+      const { pos, quat } = this.cellFacePose(cell);
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.055, 0.012, 8, 20),
         new THREE.MeshStandardMaterial({
@@ -741,11 +767,9 @@ export class PlanetView {
           emissiveIntensity: 0.9,
         }),
       );
-      ring.position
-        .set(cell.center.x, cell.center.y, cell.center.z)
-        .normalize()
-        .multiplyScalar(R);
-      ring.lookAt(0, 0, 0);
+      ring.position.copy(pos);
+      ring.quaternion.copy(quat);
+      ring.rotateX(Math.PI / 2);
       ring.userData.cellId = placed.cellId;
       this.markers.add(ring);
 
@@ -758,8 +782,9 @@ export class PlanetView {
           side: THREE.DoubleSide,
         }),
       );
-      pad.position.copy(ring.position);
-      pad.lookAt(0, 0, 0);
+      pad.position.copy(pos);
+      pad.quaternion.copy(quat);
+      pad.rotateX(Math.PI / 2);
       pad.userData.cellId = placed.cellId;
       this.markers.add(pad);
     }
@@ -790,14 +815,9 @@ export class PlanetView {
       if (!cell) continue;
       const team = ownerColor.get(t.ownerId) ?? "#ffffff";
       const mesh = createTowerVisual(t.visualId, team);
-      mesh.position
-        .set(cell.center.x, cell.center.y, cell.center.z)
-        .normalize()
-        .multiplyScalar(R);
-      mesh.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        mesh.position.clone().normalize(),
-      );
+      const { pos, quat } = this.cellFacePose(cell);
+      mesh.position.copy(pos);
+      mesh.quaternion.copy(quat);
       mesh.userData.cellId = t.cellId;
       mesh.userData.towerAnim = true;
       this.markers.add(mesh);
