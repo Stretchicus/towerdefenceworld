@@ -3,6 +3,39 @@ import type { ResourceMap, TowerDef } from "../types.js";
 export const TOWER_POINT_POOL = 100;
 export const BASELINE_FIRE_RATE = 6;
 
+export type SliderStatField =
+  | "power"
+  | "range"
+  | "fireRate"
+  | "buildDiscount"
+  | "upgradeDiscount";
+
+/** Point cost per unit for each workshop slider. */
+export const SLIDER_POINT_COST: Record<SliderStatField, number> = {
+  power: 5,
+  range: 15,
+  fireRate: 8,
+  buildDiscount: 10,
+  upgradeDiscount: 25,
+};
+
+export const SLIDER_MIN: Record<SliderStatField, number> = {
+  power: 1,
+  range: 1,
+  fireRate: 1,
+  buildDiscount: 0,
+  upgradeDiscount: 0,
+};
+
+/** Absolute caps for fields wiped/ignored when resourceCount < 3. */
+const SLIDER_ABS_MAX: Record<SliderStatField, number> = {
+  power: 20,
+  range: 6,
+  fireRate: 10,
+  buildDiscount: 10,
+  upgradeDiscount: 8,
+};
+
 export type ValidationResult =
   | { ok: true }
   | { ok: false; errors: string[] };
@@ -10,6 +43,37 @@ export type ValidationResult =
 export type LoadoutValidationResult =
   | { ok: true; towers: TowerDef[] }
   | { ok: false; errors: string[] };
+
+export function allowedSliderFields(
+  resourceCount: number,
+): SliderStatField[] {
+  return resourceCount >= 3
+    ? ["power", "range", "fireRate", "buildDiscount", "upgradeDiscount"]
+    : ["power", "range"];
+}
+
+/**
+ * Max slider value that still fits in the pool when every other allowed
+ * slider is at its minimum: floor((pool − minCostOthers) / cost).
+ */
+export function maxSliderValue(
+  field: SliderStatField,
+  resourceCount: number,
+): number {
+  const fields = allowedSliderFields(resourceCount);
+  if (!fields.includes(field)) {
+    return SLIDER_ABS_MAX[field];
+  }
+  let othersMin = 0;
+  for (const f of fields) {
+    if (f === field) continue;
+    othersMin += SLIDER_MIN[f] * SLIDER_POINT_COST[f];
+  }
+  const max = Math.floor(
+    (TOWER_POINT_POOL - othersMin) / SLIDER_POINT_COST[field],
+  );
+  return Math.max(SLIDER_MIN[field], max);
+}
 
 function num(v: unknown, fallback = 0): number {
   return typeof v === "number" && Number.isFinite(v) ? v : fallback;
@@ -96,20 +160,37 @@ export function validateTowerDef(
   if (!def?.id || typeof def.id !== "string") {
     errors.push("tower id required");
   }
-  if (def.power < 1 || def.power > 20) {
-    errors.push(`${def.id}: power must be 1–20`);
+  const powerMax = maxSliderValue("power", resourceCount);
+  const rangeMax = maxSliderValue("range", resourceCount);
+  const fireMax = maxSliderValue("fireRate", resourceCount);
+  const buildDiscMax = maxSliderValue("buildDiscount", resourceCount);
+  const upgradeDiscMax = maxSliderValue("upgradeDiscount", resourceCount);
+  if (def.power < SLIDER_MIN.power || def.power > powerMax) {
+    errors.push(`${def.id}: power must be ${SLIDER_MIN.power}–${powerMax}`);
   }
-  if (def.range < 1 || def.range > 6) {
-    errors.push(`${def.id}: range must be 1–6`);
+  if (def.range < SLIDER_MIN.range || def.range > rangeMax) {
+    errors.push(`${def.id}: range must be ${SLIDER_MIN.range}–${rangeMax}`);
   }
-  if (def.fireRate < 1 || def.fireRate > 10) {
-    errors.push(`${def.id}: fireRate must be 1–10`);
+  if (def.fireRate < SLIDER_MIN.fireRate || def.fireRate > fireMax) {
+    errors.push(
+      `${def.id}: fireRate must be ${SLIDER_MIN.fireRate}–${fireMax}`,
+    );
   }
-  if (def.buildDiscount < 0 || def.buildDiscount > 10) {
-    errors.push(`${def.id}: buildDiscount must be 0–10`);
+  if (
+    def.buildDiscount < SLIDER_MIN.buildDiscount ||
+    def.buildDiscount > buildDiscMax
+  ) {
+    errors.push(
+      `${def.id}: buildDiscount must be ${SLIDER_MIN.buildDiscount}–${buildDiscMax}`,
+    );
   }
-  if (def.upgradeDiscount < 0 || def.upgradeDiscount > 8) {
-    errors.push(`${def.id}: upgradeDiscount must be 0–8`);
+  if (
+    def.upgradeDiscount < SLIDER_MIN.upgradeDiscount ||
+    def.upgradeDiscount > upgradeDiscMax
+  ) {
+    errors.push(
+      `${def.id}: upgradeDiscount must be ${SLIDER_MIN.upgradeDiscount}–${upgradeDiscMax}`,
+    );
   }
   if (
     def.upgradeLevelIncrease < 1 ||

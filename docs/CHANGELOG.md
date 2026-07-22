@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.28 — 2026-07-22
+
+### Changed
+
+- Workshop slider maxes match the 100-point pool (`floor((100 − other mins) / cost)`)
+- Points meter fill lives in the active tower tab background
+
+### Fixed
+
+- Removed the auto-balance hint under the workshop sliders
+
 ## 0.1.27 — 2026-07-22
 
 ### Fixed

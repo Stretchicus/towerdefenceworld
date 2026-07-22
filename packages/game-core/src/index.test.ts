@@ -27,6 +27,7 @@ import {
   TOWER_POINT_POOL,
   tickMatch,
   towerCooldownTicks,
+  maxSliderValue,
   runAiPlacement,
   validateLoadout,
   validateTowerDef,
@@ -336,6 +337,16 @@ describe("match combat", () => {
     const loadout = defaultTowerLoadout(3);
     const broken = { ...loadout[0]!, power: 40, range: 6 };
     assert.equal(validateTowerDef(broken, 3).ok, false);
+  });
+
+  it("slider maxes fit pool when other stats are at minimum", () => {
+    assert.equal(maxSliderValue("power", 2), 17);
+    assert.equal(maxSliderValue("range", 2), 6);
+    assert.equal(maxSliderValue("power", 3), 15);
+    assert.equal(maxSliderValue("range", 3), 5);
+    assert.equal(maxSliderValue("fireRate", 3), 10);
+    assert.equal(maxSliderValue("buildDiscount", 3), 7);
+    assert.equal(maxSliderValue("upgradeDiscount", 3), 2);
   });
 
   it("v2 scoring and derived costs respect resourceCount", () => {

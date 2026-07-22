@@ -71,6 +71,10 @@ export type {
 export {
   TOWER_POINT_POOL,
   BASELINE_FIRE_RATE,
+  SLIDER_POINT_COST,
+  SLIDER_MIN,
+  allowedSliderFields,
+  maxSliderValue,
   scoreTowerPoints,
   scoreTowerPointsRaw,
   deriveTowerCosts,
@@ -83,4 +87,9 @@ export {
   parseLoadoutFile,
   loadoutFileFromTowers,
 } from "./towers/loadout.js";
-export type { ValidationResult, LoadoutValidationResult, LoadoutFileV2 } from "./towers/loadout.js";
+export type {
+  ValidationResult,
+  LoadoutValidationResult,
+  LoadoutFileV2,
+  SliderStatField,
+} from "./towers/loadout.js";

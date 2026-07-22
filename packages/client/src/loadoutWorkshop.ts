@@ -1,24 +1,23 @@
 import {
   TOWER_POINT_POOL,
+  SLIDER_MIN,
+  allowedSliderFields,
   blankTower,
   defaultTowerLoadout,
   loadoutFileFromTowers,
+  maxSliderValue,
   normalizeTowerForResources,
   parseLoadoutFile,
   scoreTowerPoints,
   scoreTowerPointsRaw,
   validateLoadout,
+  type SliderStatField,
   type TowerDef,
 } from "@tdw/game-core";
 
 export type WorkshopTab = "simple" | "advanced";
 
-export type SliderField =
-  | "power"
-  | "range"
-  | "fireRate"
-  | "buildDiscount"
-  | "upgradeDiscount";
+export type SliderField = SliderStatField;
 
 export interface WorkshopState {
   towers: TowerDef[];
@@ -29,28 +28,13 @@ export interface WorkshopState {
   errors: string[];
 }
 
-const BASE_SLIDER_FIELDS: SliderField[] = ["power", "range"];
-const THREE_RESOURCE_SLIDER_FIELDS: SliderField[] = [
-  "fireRate",
-  "buildDiscount",
-  "upgradeDiscount",
-];
-const SLIDER_CONFIG: Record<
-  SliderField,
-  { label: string; min: number; max: number }
-> = {
-  power: { label: "Power", min: 1, max: 20 },
-  range: { label: "Range", min: 1, max: 6 },
-  fireRate: { label: "Fire rate", min: 1, max: 10 },
-  buildDiscount: { label: "Build discount", min: 0, max: 10 },
-  upgradeDiscount: { label: "Upgrade discount", min: 0, max: 8 },
+const SLIDER_LABEL: Record<SliderField, string> = {
+  power: "Power",
+  range: "Range",
+  fireRate: "Fire rate",
+  buildDiscount: "Build discount",
+  upgradeDiscount: "Upgrade discount",
 };
-
-function allowedSliderFields(resourceCount: number): SliderField[] {
-  return resourceCount >= 3
-    ? [...BASE_SLIDER_FIELDS, ...THREE_RESOURCE_SLIDER_FIELDS]
-    : BASE_SLIDER_FIELDS;
-}
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
@@ -60,8 +44,14 @@ function getField(def: TowerDef, field: SliderField): number {
   return def[field];
 }
 
-function setField(def: TowerDef, field: SliderField, value: number): void {
-  const { min, max } = SLIDER_CONFIG[field];
+function setField(
+  def: TowerDef,
+  field: SliderField,
+  value: number,
+  resourceCount: number,
+): void {
+  const min = SLIDER_MIN[field];
+  const max = maxSliderValue(field, resourceCount);
   def[field] = clamp(value, min, max);
 }
 
@@ -71,23 +61,31 @@ function fieldContribution(
   resourceCount: number,
 ): number {
   const original = getField(def, field);
-  setField(def, field, 0);
+  setField(def, field, 0, resourceCount);
   const base = scoreTowerPointsRaw(def, resourceCount);
-  setField(def, field, original);
+  setField(def, field, original, resourceCount);
   return scoreTowerPointsRaw(def, resourceCount) - base;
 }
 
-function nudgeReducePoints(def: TowerDef, field: SliderField): boolean {
+function nudgeReducePoints(
+  def: TowerDef,
+  field: SliderField,
+  resourceCount: number,
+): boolean {
   const v = getField(def, field);
-  if (v <= SLIDER_CONFIG[field].min) return false;
-  setField(def, field, v - 1);
+  if (v <= SLIDER_MIN[field]) return false;
+  setField(def, field, v - 1, resourceCount);
   return true;
 }
 
-function nudgeIncreasePoints(def: TowerDef, field: SliderField): boolean {
+function nudgeIncreasePoints(
+  def: TowerDef,
+  field: SliderField,
+  resourceCount: number,
+): boolean {
   const v = getField(def, field);
-  if (v >= SLIDER_CONFIG[field].max) return false;
-  setField(def, field, v + 1);
+  if (v >= maxSliderValue(field, resourceCount)) return false;
+  setField(def, field, v + 1, resourceCount);
   return true;
 }
 
@@ -95,11 +93,12 @@ function undoNudge(
   def: TowerDef,
   field: SliderField,
   direction: "reduce" | "increase",
+  resourceCount: number,
 ): void {
   if (direction === "reduce") {
-    setField(def, field, getField(def, field) + 1);
+    setField(def, field, getField(def, field) + 1, resourceCount);
   } else {
-    setField(def, field, getField(def, field) - 1);
+    setField(def, field, getField(def, field) - 1, resourceCount);
   }
 }
 
@@ -132,10 +131,10 @@ export function rebalanceTowerToPool(
     if (spent > TOWER_POINT_POOL) {
       for (const field of others) {
         const beforeRaw = scoreTowerPointsRaw(def, resourceCount);
-        if (!nudgeReducePoints(def, field)) continue;
+        if (!nudgeReducePoints(def, field, resourceCount)) continue;
         const afterRaw = scoreTowerPointsRaw(def, resourceCount);
         if (afterRaw >= beforeRaw - 1e-9) {
-          undoNudge(def, field, "reduce");
+          undoNudge(def, field, "reduce", resourceCount);
           continue;
         }
         moved = true;
@@ -143,22 +142,22 @@ export function rebalanceTowerToPool(
       }
       if (!moved) {
         // Others are already at floor — force the dragged field back under pool.
-        if (!nudgeReducePoints(def, lockedField)) return;
+        if (!nudgeReducePoints(def, lockedField, resourceCount)) return;
         continue;
       }
     } else {
       for (const field of others) {
         const beforeRaw = scoreTowerPointsRaw(def, resourceCount);
-        if (!nudgeIncreasePoints(def, field)) continue;
+        if (!nudgeIncreasePoints(def, field, resourceCount)) continue;
         const after = scoreTowerPoints(def, resourceCount);
         const afterRaw = scoreTowerPointsRaw(def, resourceCount);
         if (afterRaw <= beforeRaw + 1e-9) {
-          undoNudge(def, field, "increase");
+          undoNudge(def, field, "increase", resourceCount);
           continue;
         }
         // Never accept a nudge that pushes over the pool (validation is ≤ 100).
         if (after > TOWER_POINT_POOL) {
-          undoNudge(def, field, "increase");
+          undoNudge(def, field, "increase", resourceCount);
           continue;
         }
         moved = true;
@@ -240,6 +239,7 @@ function syncSimpleSliderDom(
   root: HTMLElement,
   def: TowerDef,
   resourceCount: number,
+  selectedIndex: number,
   /** Skip rewriting this range input unless its value was clamped. */
   draggingField?: SliderField,
 ): void {
@@ -249,7 +249,9 @@ function syncSimpleSliderDom(
     ) as HTMLInputElement | null;
     const val = root.querySelector(`[data-ws-val="${field}"]`);
     const n = getField(def, field);
+    const max = maxSliderValue(field, resourceCount);
     if (input) {
+      input.max = String(max);
       const next = String(n);
       // Assigning .value mid-drag cancels the pointer gesture in browsers,
       // even when the number is unchanged — only write when needed.
@@ -264,14 +266,26 @@ function syncSimpleSliderDom(
     costs.innerHTML = `<span>Build ${costChips(def.buildCost)}</span><span>Upgrade ${costChips(def.upgradeCost)}</span>`;
   }
   const meter = pointsMeter(def, resourceCount);
-  const fill = root.querySelector(".ws-meter-fill") as HTMLElement | null;
-  const box = root.querySelector(".ws-meter");
-  const label = root.querySelector(".ws-meter span");
-  if (fill) {
-    fill.style.width = `${Math.min(100, (meter.spent / TOWER_POINT_POOL) * 100)}%`;
-  }
-  box?.classList.toggle("over", meter.over);
-  if (label) label.textContent = `${meter.spent} / ${TOWER_POINT_POOL} points`;
+  const pct = Math.min(100, (meter.spent / TOWER_POINT_POOL) * 100);
+  root.querySelectorAll(".ws-tower-tab").forEach((el) => {
+    const btn = el as HTMLElement;
+    const i = Number(btn.dataset.wsSelect);
+    const fill = btn.querySelector(".ws-meter-fill") as HTMLElement | null;
+    if (i === selectedIndex) {
+      if (fill) fill.style.width = `${pct}%`;
+      else {
+        const span = document.createElement("span");
+        span.className = "ws-meter-fill";
+        span.style.width = `${pct}%`;
+        btn.prepend(span);
+      }
+      btn.classList.toggle("over", meter.over);
+    }
+  });
+  const tabPts = root.querySelector(
+    `[data-ws-select="${selectedIndex}"] .ws-pts`,
+  );
+  if (tabPts) tabPts.textContent = `${meter.spent}/${meter.pool}`;
 }
 
 export function workshopHtml(state: WorkshopState): string {
@@ -283,21 +297,26 @@ export function workshopHtml(state: WorkshopState): string {
   );
   state.selectedIndex = idx;
   const t = state.towers[idx];
-  const meter = t ? pointsMeter(t, state.resourceCount) : null;
 
   const towerTabs = state.towers
     .map((tw, i) => {
       const m = pointsMeter(tw, state.resourceCount);
-      return `<button type="button" class="ws-tower-tab ${i === idx ? "on" : ""} ${m.over ? "over" : ""}" data-ws-select="${i}">${escapeHtml(tw.id)} <span class="ws-pts">${m.spent}/${m.pool}</span></button>`;
+      const on = i === idx;
+      const fillPct = Math.min(100, (m.spent / TOWER_POINT_POOL) * 100);
+      const fill = on
+        ? `<span class="ws-meter-fill" style="width:${fillPct}%"></span>`
+        : "";
+      return `<button type="button" class="ws-tower-tab ${on ? "on" : ""} ${m.over ? "over" : ""}" data-ws-select="${i}">${fill}<span class="ws-tab-face">${escapeHtml(tw.id)} <span class="ws-pts">${m.spent}/${m.pool}</span></span></button>`;
     })
     .join("");
 
   const simpleSliders = t
     ? allowedSliderFields(state.resourceCount)
         .map((field) => {
-          const config = SLIDER_CONFIG[field];
           const value = getField(t, field);
-          return `<label>${config.label} <input type="range" min="${config.min}" max="${config.max}" data-ws-field="${field}" value="${value}" /><span data-ws-val="${field}">${formatSliderDisplay(field, value)}</span></label>`;
+          const min = SLIDER_MIN[field];
+          const max = maxSliderValue(field, state.resourceCount);
+          return `<label>${SLIDER_LABEL[field]} <input type="range" min="${min}" max="${max}" data-ws-field="${field}" value="${value}" /><span data-ws-val="${field}">${formatSliderDisplay(field, value)}</span></label>`;
         })
         .join("")
     : "";
@@ -307,11 +326,6 @@ export function workshopHtml(state: WorkshopState): string {
         ${simpleSliders}
         <p class="hint">Taxed resources: power → power · range → stone${state.resourceCount >= 3 ? " · fire rate → water" : ""}</p>
         <div class="ws-costs"><span>Build ${costChips(t.buildCost)}</span><span>Upgrade ${costChips(t.upgradeCost)}</span></div>
-        <div class="ws-meter ${meter?.over ? "over" : ""}">
-          <div class="ws-meter-fill" style="width:${Math.min(100, ((meter?.spent ?? 0) / TOWER_POINT_POOL) * 100)}%"></div>
-          <span>${meter?.spent ?? 0} / ${TOWER_POINT_POOL} points</span>
-        </div>
-        <p class="hint">Sliders auto-balance to ${TOWER_POINT_POOL} by adjusting the highest other stat.</p>
       </div>`
     : `<p class="hint">No towers in loadout.</p>`;
 
@@ -355,7 +369,7 @@ export function bindWorkshop(
     if (!t) return;
     const n = Number(raw);
     if (!Number.isFinite(n)) return;
-    setField(t, field, n);
+    setField(t, field, n, state.resourceCount);
     const normalized = normalizeTowerForResources(t, state.resourceCount);
     state.towers[state.selectedIndex] = normalized;
     rebalanceTowerToPool(normalized, field, state.resourceCount);
@@ -400,12 +414,13 @@ export function bindWorkshop(
   const refreshAfterSlider = (draggingField?: SliderField) => {
     const t = state.towers[state.selectedIndex];
     if (!t) return;
-    syncSimpleSliderDom(root, t, state.resourceCount, draggingField);
-    const tab = root.querySelector(
-      `[data-ws-select="${state.selectedIndex}"] .ws-pts`,
+    syncSimpleSliderDom(
+      root,
+      t,
+      state.resourceCount,
+      state.selectedIndex,
+      draggingField,
     );
-    const meter = pointsMeter(t, state.resourceCount);
-    if (tab) tab.textContent = `${meter.spent}/${meter.pool}`;
     softValidate();
   };
 

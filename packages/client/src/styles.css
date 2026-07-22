@@ -617,6 +617,8 @@ button.secondary {
 }
 
 .ws-tower-tab {
+  position: relative;
+  overflow: hidden;
   font-size: 0.75rem;
 }
 
@@ -628,6 +630,23 @@ button.secondary {
 .ws-tower-tab.over {
   border-color: var(--danger);
   color: var(--danger);
+}
+
+.ws-tower-tab .ws-meter-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  background: rgba(61, 214, 198, 0.28);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.ws-tower-tab.on.over .ws-meter-fill {
+  background: rgba(224, 80, 80, 0.4);
+}
+
+.ws-tab-face {
+  position: relative;
+  z-index: 1;
 }
 
 .ws-pts {
@@ -675,34 +694,6 @@ button.secondary {
   display: inline-flex;
   align-items: center;
   gap: 0.25rem;
-}
-
-.ws-meter {
-  position: relative;
-  height: 1.4rem;
-  border: 1px solid var(--line);
-  background: rgba(0, 0, 0, 0.35);
-  margin-top: 0.35rem;
-  overflow: hidden;
-}
-
-.ws-meter-fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  background: rgba(61, 214, 198, 0.35);
-}
-
-.ws-meter.over .ws-meter-fill {
-  background: rgba(224, 80, 80, 0.45);
-}
-
-.ws-meter span {
-  position: relative;
-  z-index: 1;
-  display: block;
-  text-align: center;
-  font-size: 0.75rem;
-  line-height: 1.4rem;
 }
 
 .ws-json {
