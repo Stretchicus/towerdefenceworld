@@ -107,6 +107,8 @@ function undoNudge(
  * Keep tower at TOWER_POINT_POOL by adjusting other sliders.
  * Over → lower the highest-contributing other field.
  * Under → raise the highest-contributing other field that still has room.
+ * If others cannot free enough points, clamp the locked field down so spent
+ * never stays above the pool.
  * Uses raw (unrounded) score so tiny cost nudges can accumulate.
  */
 export function rebalanceTowerToPool(
@@ -124,7 +126,7 @@ export function rebalanceTowerToPool(
         (a, b) =>
           fieldContribution(def, b, resourceCount) -
           fieldContribution(def, a, resourceCount),
-    );
+      );
 
     let moved = false;
     if (spent > TOWER_POINT_POOL) {
@@ -139,9 +141,13 @@ export function rebalanceTowerToPool(
         moved = true;
         break;
       }
+      if (!moved) {
+        // Others are already at floor — force the dragged field back under pool.
+        if (!nudgeReducePoints(def, lockedField)) return;
+        continue;
+      }
     } else {
       for (const field of others) {
-        const before = scoreTowerPoints(def, resourceCount);
         const beforeRaw = scoreTowerPointsRaw(def, resourceCount);
         if (!nudgeIncreasePoints(def, field)) continue;
         const after = scoreTowerPoints(def, resourceCount);
@@ -150,19 +156,16 @@ export function rebalanceTowerToPool(
           undoNudge(def, field, "increase");
           continue;
         }
+        // Never accept a nudge that pushes over the pool (validation is ≤ 100).
         if (after > TOWER_POINT_POOL) {
-          const overDist = after - TOWER_POINT_POOL;
-          const underDist = TOWER_POINT_POOL - before;
-          if (overDist >= underDist) {
-            undoNudge(def, field, "increase");
-            return;
-          }
+          undoNudge(def, field, "increase");
+          continue;
         }
         moved = true;
         break;
       }
+      if (!moved) return;
     }
-    if (!moved) return;
   }
 }
 
@@ -237,6 +240,8 @@ function syncSimpleSliderDom(
   root: HTMLElement,
   def: TowerDef,
   resourceCount: number,
+  /** Skip rewriting this range input unless its value was clamped. */
+  draggingField?: SliderField,
 ): void {
   for (const field of allowedSliderFields(resourceCount)) {
     const input = root.querySelector(
@@ -244,7 +249,14 @@ function syncSimpleSliderDom(
     ) as HTMLInputElement | null;
     const val = root.querySelector(`[data-ws-val="${field}"]`);
     const n = getField(def, field);
-    if (input) input.value = String(n);
+    if (input) {
+      const next = String(n);
+      // Assigning .value mid-drag cancels the pointer gesture in browsers,
+      // even when the number is unchanged — only write when needed.
+      if (field !== draggingField || input.value !== next) {
+        input.value = next;
+      }
+    }
     if (val) val.textContent = formatSliderDisplay(field, n);
   }
   const costs = root.querySelector(".ws-costs");
@@ -336,7 +348,7 @@ export function workshopHtml(state: WorkshopState): string {
 export function bindWorkshop(
   root: HTMLElement,
   state: WorkshopState,
-  onChange: (kind?: "soft" | "hard") => void,
+  onChange: (kind?: "soft" | "hard" | "commit") => void,
 ): void {
   const applySlider = (field: SliderField, raw: string) => {
     const t = state.towers[state.selectedIndex];
@@ -385,10 +397,10 @@ export function bindWorkshop(
     }
   };
 
-  const refreshAfterSlider = () => {
+  const refreshAfterSlider = (draggingField?: SliderField) => {
     const t = state.towers[state.selectedIndex];
     if (!t) return;
-    syncSimpleSliderDom(root, t, state.resourceCount);
+    syncSimpleSliderDom(root, t, state.resourceCount, draggingField);
     const tab = root.querySelector(
       `[data-ws-select="${state.selectedIndex}"] .ws-pts`,
     );
@@ -474,13 +486,14 @@ export function bindWorkshop(
       const sliderField = field as SliderField;
       input.addEventListener("input", () => {
         applySlider(sliderField, input.value);
-        refreshAfterSlider();
+        // Local meter/chip updates only — no server push / lobby paint mid-drag.
+        refreshAfterSlider(sliderField);
         onChange("soft");
       });
       input.addEventListener("change", () => {
         applySlider(sliderField, input.value);
-        refreshAfterSlider();
-        onChange("soft");
+        refreshAfterSlider(sliderField);
+        onChange("commit");
       });
     } else {
       input.addEventListener("change", () => {

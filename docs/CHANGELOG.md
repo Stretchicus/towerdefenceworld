@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.27 — 2026-07-22
+
+### Fixed
+
+- Workshop sliders stay grabbed while dragging (no mid-drag lobby redraw / server push)
+- Slider drag can no longer push a tower over the 100-point pool
+
 ## 0.1.26 — 2026-07-22
 
 ### Changed
