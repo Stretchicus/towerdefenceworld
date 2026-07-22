@@ -108,7 +108,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.45";
+const CLIENT_BUILD = "v0.1.46";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -1105,7 +1105,7 @@ function renderMatch(): void {
       }
       ${
         m.phase === "ended"
-          ? `<p>Winners: ${m.winnerIds.map((id) => m.players.find((p) => p.id === id)?.name ?? id).join(", ")}</p>
+          ? `<p>${m.winnerIds.length === 1 ? "Winner" : "Winners"}: ${m.winnerIds.map((id) => m.players.find((p) => p.id === id)?.name ?? id).join(", ")}</p>
              <button id="btn-exit-end">Back to menu</button>`
           : ""
       }

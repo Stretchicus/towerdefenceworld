@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.46 — 2026-07-22
+
+### Changed
+
+- End screen uses “Winner” for a single victor, “Winners” when there are more
+
 ## 0.1.45 — 2026-07-22
 
 ### Fixed
