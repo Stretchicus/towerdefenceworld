@@ -182,6 +182,8 @@ export class PlanetView {
   private cellCenters = new Map<number, THREE.Vector3>();
   /** Gameplay sits on the hex surface — not the atmosphere shell */
   private static readonly SURFACE = 1.012;
+  /** Must match vertex scale used when building cell meshes in setPlanet */
+  private static readonly FACE_SCALE = 1.002;
   private static readonly Y_UP = new THREE.Vector3(0, 1, 0);
 
   /** Pose on the flat cell face (not the radial sphere bump), so props sit on the tile. */
@@ -200,7 +202,8 @@ export class PlanetView {
       face.z += v.z;
     }
     const n = cell.vertices.length || 1;
-    face.multiplyScalar(1 / n);
+    // Same radial scale as the rendered hex rim so props aren't buried under the mesh
+    face.multiplyScalar(PlanetView.FACE_SCALE / n);
     const outward = face.clone().normalize();
     const pos = face.clone().addScaledVector(outward, lift);
     const quat = new THREE.Quaternion().setFromUnitVectors(
@@ -454,7 +457,7 @@ export class PlanetView {
         cell.center.z,
       );
       const verts = cell.vertices.map((v) =>
-        new THREE.Vector3(v.x, v.y, v.z).multiplyScalar(1.002),
+        new THREE.Vector3(v.x, v.y, v.z).multiplyScalar(PlanetView.FACE_SCALE),
       );
       if (verts.length < 3) continue;
 
@@ -769,7 +772,8 @@ export class PlanetView {
       if (!placed.tile.hasTowerPoint || towerCells.has(placed.cellId)) continue;
       const cell = cellMap.get(placed.cellId);
       if (!cell) continue;
-      const { pos, quat } = this.cellFacePose(cell, 0.014);
+      // Tube radius 0.012 — lift clear of the hex face so the ring isn't buried
+      const { pos, quat } = this.cellFacePose(cell, 0.018);
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.055, 0.012, 8, 20),
         new THREE.MeshStandardMaterial({

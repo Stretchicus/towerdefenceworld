@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.42 — 2026-07-22
+
+### Fixed
+
+- Pad rings sit on the rendered hex face (match mesh vertex scale + clearer lift)
+
 ## 0.1.41 — 2026-07-22
 
 ### Changed
