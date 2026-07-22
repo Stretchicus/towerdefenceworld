@@ -758,10 +758,6 @@ button.secondary {
   padding-left: 1.1rem;
 }
 
-.ws-ok {
-  color: var(--accent);
-}
-
 .type-picker {
   display: flex;
   flex-direction: column;

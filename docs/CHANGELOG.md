@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.33 — 2026-07-22
+
+### Changed
+
+- Removed workshop “Taxed resources” and “Loadout valid” hints
+
 ## 0.1.32 — 2026-07-22
 
 ### Fixed

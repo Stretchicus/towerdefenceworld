@@ -310,7 +310,6 @@ export function workshopHtml(state: WorkshopState): string {
     ? `<div class="ws-simple">
         <label>Id <input data-ws-field="id" value="${escapeHtml(t.id)}" /></label>
         ${simpleSliders}
-        <p class="hint">Taxed resources: power → power · range → stone${state.resourceCount >= 3 ? " · fire rate → water" : ""}</p>
         <div class="ws-costs"><span>Build ${costChips(t.buildCost)}</span><span>Upgrade ${costChips(t.upgradeCost)}</span></div>
       </div>`
     : `<p class="hint">No towers in loadout.</p>`;
@@ -332,7 +331,7 @@ export function workshopHtml(state: WorkshopState): string {
     ${
       errors.length
         ? `<ul class="ws-errors">${errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("")}</ul>`
-        : `<p class="hint ws-ok">Loadout valid</p>`
+        : ""
     }
   </div>`;
 }
@@ -361,9 +360,7 @@ export function bindWorkshop(
     const errors = workshopValidation(state);
     state.errors = errors;
     let list = root.querySelector(".ws-errors");
-    const ok = root.querySelector(".ws-ok");
     if (errors.length) {
-      ok?.remove();
       if (!list) {
         list = document.createElement("ul");
         list.className = "ws-errors";
@@ -372,12 +369,6 @@ export function bindWorkshop(
       list.innerHTML = errors.map((e) => `<li>${escapeHtml(e)}</li>`).join("");
     } else {
       list?.remove();
-      if (!root.querySelector(".ws-ok")) {
-        const el = document.createElement("p");
-        el.className = "hint ws-ok";
-        el.textContent = "Loadout valid";
-        root.appendChild(el);
-      }
     }
     const ready = document.getElementById(
       "btn-ready",
