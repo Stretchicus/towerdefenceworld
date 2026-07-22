@@ -1,6 +1,6 @@
 import "./styles.css";
 import { GameSocket, type ServerMessage } from "./net.js";
-import { PlanetView, type PlanetViewData } from "./planetView.js";
+import { PlanetView, shadeBodColor, type PlanetViewData } from "./planetView.js";
 import {
   bindWorkshop,
   createWorkshopState,
@@ -104,7 +104,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.35";
+const CLIENT_BUILD = "v0.1.36";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -925,6 +925,11 @@ function renderMatch(): void {
           .join("")
       : "";
 
+    const selfColor =
+      PLAYER_COLORS[
+        Math.max(0, m.players.findIndex((p) => p.id === self?.id)) %
+          PLAYER_COLORS.length
+      ]!;
     const bods = self
       ? Object.entries(self.bodEnabled)
           .map(([id, on]) => {
@@ -933,10 +938,14 @@ function renderMatch(): void {
             const level = self.bodLevels?.[id] ?? 0;
             const upCost = bodUpgradeCost(m, id, level);
             const affordUp = canAffordCost(self.bank, upCost);
+            const tint = shadeBodColor(selfColor, id);
             return `<div class="bod-chip chip ${on ? "on" : "off"} ${afford ? "" : "cant-afford"}">
               <button type="button" class="bod-toggle" data-bod="${id}">
-                <span class="bod-name">${id}</span>
-                <span class="cost-row">${costChipsHtml(cost, afford)}</span>
+                <span class="bod-preview" style="--bod-color:${tint}" title="${id}" aria-hidden="true"></span>
+                <span class="bod-toggle-copy">
+                  <span class="bod-name">${id}</span>
+                  <span class="cost-row">${costChipsHtml(cost, afford)}</span>
+                </span>
               </button>
               <button type="button" class="bod-up-slot" data-bod-up="${id}" title="Upgrade ${id}" aria-label="Upgrade ${id}" ${affordUp ? "" : "disabled"}>
                 <span class="bod-up-lvl">L${level + 1}</span>

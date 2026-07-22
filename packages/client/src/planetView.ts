@@ -42,7 +42,10 @@ const TEAM_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const BOD_RADIUS = 0.055;
 const Y_UP = new THREE.Vector3(0, 1, 0);
 
-function shadeBodColor(ownerHex: string, typeId: string | undefined): string {
+export function shadeBodColor(
+  ownerHex: string,
+  typeId: string | undefined,
+): string {
   const c = new THREE.Color(ownerHex);
   if (typeId === "grunt") {
     c.lerp(new THREE.Color("#ffffff"), 0.34);
@@ -62,7 +65,84 @@ function bodHpRatio(b: { hp?: number; maxHp?: number }): number {
 function bodSphereGeometry(ratio: number): THREE.SphereGeometry {
   const thetaStart = (1 - ratio) * Math.PI;
   const thetaLength = ratio * Math.PI;
-  return new THREE.SphereGeometry(BOD_RADIUS, 12, 10, 0, Math.PI * 2, thetaStart, thetaLength);
+  return new THREE.SphereGeometry(
+    BOD_RADIUS,
+    12,
+    10,
+    0,
+    Math.PI * 2,
+    thetaStart,
+    thetaLength,
+  );
+}
+
+function bodCapRadius(ratio: number): number {
+  const thetaStart = (1 - ratio) * Math.PI;
+  return BOD_RADIUS * Math.sin(thetaStart);
+}
+
+function bodCapY(ratio: number): number {
+  const thetaStart = (1 - ratio) * Math.PI;
+  return BOD_RADIUS * Math.cos(thetaStart);
+}
+
+function bodMaterial(tint: string): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: tint,
+    emissive: tint,
+    emissiveIntensity: 0.85,
+    side: THREE.DoubleSide,
+  });
+}
+
+function disposeObject3D(root: THREE.Object3D): void {
+  root.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      obj.geometry.dispose();
+      const mat = obj.material;
+      if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+      else mat.dispose();
+    }
+  });
+}
+
+function applyBodTint(root: THREE.Object3D, tint: string): void {
+  root.traverse((obj) => {
+    if (obj instanceof THREE.Mesh) {
+      const mat = obj.material as THREE.MeshStandardMaterial;
+      mat.color.set(tint);
+      mat.emissive.set(tint);
+    }
+  });
+}
+
+function updateBodCap(root: THREE.Group, ratio: number): void {
+  let cap = root.children.find((c) => c.userData.part === "cap") as
+    | THREE.Mesh
+    | undefined;
+  const r = bodCapRadius(ratio);
+  const y = bodCapY(ratio);
+  if (r < 0.001) {
+    if (cap) cap.visible = false;
+    return;
+  }
+  if (!cap) {
+    const body = root.children.find((c) => c.userData.part === "body") as
+      | THREE.Mesh
+      | undefined;
+    const mat = body
+      ? (body.material as THREE.MeshStandardMaterial).clone()
+      : bodMaterial("#ffffff");
+    cap = new THREE.Mesh(new THREE.CircleGeometry(r, 20), mat);
+    cap.userData.part = "cap";
+    cap.rotation.x = -Math.PI / 2;
+    root.add(cap);
+  } else {
+    cap.visible = true;
+    cap.geometry.dispose();
+    cap.geometry = new THREE.CircleGeometry(r, 20);
+  }
+  cap.position.set(0, y, 0);
 }
 
 export class PlanetView {
@@ -879,36 +959,37 @@ export class PlanetView {
       this.localBodPathIndex.set(b.id, localIdx);
       this.localCooldownRemain.set(b.id, localCd);
 
-      let mesh = this.bodGroup.children.find(
+      let root = this.bodGroup.children.find(
         (c) => c.userData.bodId === b.id,
-      ) as THREE.Mesh | undefined;
+      ) as THREE.Group | undefined;
       const ratio = bodHpRatio(b);
       const base = ownerColor.get(b.ownerId) ?? "#ffffff";
       const tint = shadeBodColor(base, b.typeId);
-      if (!mesh) {
-        mesh = new THREE.Mesh(
-          bodSphereGeometry(ratio),
-          new THREE.MeshStandardMaterial({
-            color: tint,
-            emissive: tint,
-            emissiveIntensity: 0.85,
-          }),
-        );
-        mesh.userData.bodId = b.id;
-        mesh.userData.hpRatio = ratio;
-        mesh.userData.typeId = b.typeId;
-        this.bodGroup.add(mesh);
+      if (!root) {
+        root = new THREE.Group();
+        root.userData.bodId = b.id;
+        const body = new THREE.Mesh(bodSphereGeometry(ratio), bodMaterial(tint));
+        body.userData.part = "body";
+        root.add(body);
+        root.userData.hpRatio = ratio;
+        root.userData.typeId = b.typeId;
+        this.bodGroup.add(root);
+        updateBodCap(root, ratio);
       } else {
-        const prev = mesh.userData.hpRatio as number | undefined;
+        const prev = root.userData.hpRatio as number | undefined;
         if (prev === undefined || Math.abs(prev - ratio) > 0.02) {
-          mesh.geometry.dispose();
-          mesh.geometry = bodSphereGeometry(ratio);
-          mesh.userData.hpRatio = ratio;
+          const body = root.children.find((c) => c.userData.part === "body") as
+            | THREE.Mesh
+            | undefined;
+          if (body) {
+            body.geometry.dispose();
+            body.geometry = bodSphereGeometry(ratio);
+          }
+          updateBodCap(root, ratio);
+          root.userData.hpRatio = ratio;
         }
-        const mat = mesh.material as THREE.MeshStandardMaterial;
-        mat.color.set(tint);
-        mat.emissive.set(tint);
-        mesh.userData.typeId = b.typeId;
+        applyBodTint(root, tint);
+        root.userData.typeId = b.typeId;
       }
     }
 
@@ -918,16 +999,13 @@ export class PlanetView {
         this.bodGroup.remove(child);
         this.localCooldownRemain.delete(id);
         this.localBodPathIndex.delete(id);
-        if (child instanceof THREE.Mesh) {
-          child.geometry.dispose();
-          (child.material as THREE.Material).dispose();
-        }
+        disposeObject3D(child);
       }
     }
   }
 
   private placeBodMesh(
-    mesh: THREE.Mesh,
+    root: THREE.Object3D,
     b: PlanetViewData["bods"][number],
     cellMap: Map<number, CellView>,
     period: number,
@@ -958,8 +1036,8 @@ export class PlanetView {
     const ox = x / len;
     const oy = y / len;
     const oz = z / len;
-    mesh.position.set(ox * s, oy * s, oz * s);
-    mesh.quaternion.setFromUnitVectors(Y_UP, new THREE.Vector3(ox, oy, oz));
+    root.position.set(ox * s, oy * s, oz * s);
+    root.quaternion.setFromUnitVectors(Y_UP, new THREE.Vector3(ox, oy, oz));
   }
 
   render(): void {
@@ -1006,7 +1084,7 @@ export class PlanetView {
       for (const b of this.lastBodData.bods) {
         const mesh = this.bodGroup.children.find(
           (c) => c.userData.bodId === b.id,
-        ) as THREE.Mesh | undefined;
+        );
         if (!mesh) continue;
         const path = b.path ?? [b.cellId];
         let idx = this.localBodPathIndex.get(b.id) ?? b.pathIndex ?? 0;

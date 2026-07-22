@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.36 — 2026-07-22
+
+### Fixed
+
+- Bod truncated HP mesh has a solid colored flat cap (no hollow top)
+- BODS list shows a color preview swatch per type (grunt lighter / bruiser darker)
+
 ## 0.1.35 — 2026-07-22
 
 ### Changed
