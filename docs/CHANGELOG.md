@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.48 — 2026-07-22
+
+### Fixed
+
+- Hide placement “road ribbons” hint after combat / when the match ends
+
 ## 0.1.47 — 2026-07-22
 
 ### Fixed

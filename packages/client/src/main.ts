@@ -108,7 +108,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.47";
+const CLIENT_BUILD = "v0.1.48";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -1032,7 +1032,9 @@ function renderMatch(): void {
                 .join("")
         }
       </div>`
-        : `<p class="hint">Flat road ribbons = routes on the hex grid.</p>`;
+        : m.phase === "placement"
+          ? `<p class="hint">Flat road ribbons = routes on the hex grid.</p>`
+          : "";
 
     const tilePanel =
       m.phase === "placement" &&
