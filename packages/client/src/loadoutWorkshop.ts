@@ -315,14 +315,16 @@ export function workshopHtml(state: WorkshopState): string {
       </div>`
     : `<p class="hint">No towers in loadout.</p>`;
 
+  const addBtn = `<button type="button" class="ws-icon-btn" data-ws-add title="Add tower" aria-label="Add tower">+</button>`;
+  const defaultsBtn = `<button type="button" class="ws-icon-btn" data-ws-defaults title="Reset to defaults" aria-label="Reset to defaults"><svg class="ws-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 2a6 6 0 1 0 5.65 4H12a4.5 4.5 0 1 1-3.15-4.2V4.5L12 2.5 8 1v1z"/></svg></button>`;
+  const removeBtn = `<button type="button" class="ws-icon-btn ws-icon-danger" data-ws-remove title="Remove tower" aria-label="Remove tower" ${state.towers.length <= 1 ? "disabled" : ""}><svg class="ws-ico" viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M6 2h4l.5 1H14v1.5H2V3h3.5L6 2zm1 4v6H5.5V6H7zm2.5 0v6H8V6h1.5zm2.5 0v6H11V6h1zM3.5 5h9l-.7 9.2A1.5 1.5 0 0 1 10.3 15.5H5.7a1.5 1.5 0 0 1-1.5-1.3L3.5 5z"/></svg></button>`;
+
   return `<div class="workshop" id="tower-workshop">
     <h2>TOWER WORKSHOP</h2>
     <p class="hint">${state.resourceCount} resources · 100 points per tower · derived costs · Ready blocked if invalid</p>
-    <div class="ws-tower-tabs">${towerTabs || `<span class="hint">Empty</span>`}</div>
+    <div class="ws-tower-tabs">${towerTabs || `<span class="hint">Empty</span>`}${addBtn}${defaultsBtn}</div>
     <div class="row ws-actions">
-      <button type="button" class="secondary" data-ws-add>Add</button>
-      <button type="button" class="secondary" data-ws-remove ${state.towers.length <= 1 ? "disabled" : ""}>Remove</button>
-      <button type="button" class="secondary" data-ws-defaults>Defaults</button>
+      ${removeBtn}
       <button type="button" class="secondary" data-ws-download>Download</button>
       <label class="ws-upload secondary"><input type="file" accept="application/json,.json" data-ws-upload hidden />Upload</label>
     </div>
@@ -418,11 +420,20 @@ export function bindWorkshop(
   });
   root.querySelector("[data-ws-remove]")?.addEventListener("click", () => {
     if (state.towers.length <= 1) return;
+    const name = state.towers[state.selectedIndex]?.id ?? "this tower";
+    if (!window.confirm(`Remove “${name}” from the loadout?`)) return;
     state.towers.splice(state.selectedIndex, 1);
     state.selectedIndex = Math.max(0, state.selectedIndex - 1);
     onChange("hard");
   });
   root.querySelector("[data-ws-defaults]")?.addEventListener("click", () => {
+    if (
+      !window.confirm(
+        "Reset all towers to the default loadout? Your current workshop edits will be lost.",
+      )
+    ) {
+      return;
+    }
     state.towers = defaultTowerLoadout(state.resourceCount);
     state.selectedIndex = 0;
     onChange("hard");

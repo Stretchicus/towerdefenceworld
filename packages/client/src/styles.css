@@ -612,6 +612,7 @@ button.secondary {
 .ws-tower-tabs {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 0.35rem;
   margin: 0.4rem 0;
 }
@@ -656,6 +657,29 @@ button.secondary {
 .ws-pts {
   opacity: 0.75;
   margin-left: 0.25rem;
+}
+
+.ws-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0.25rem 0.45rem;
+  font-size: 1.05rem;
+  line-height: 1;
+  font-weight: 700;
+}
+
+.ws-icon-btn .ws-ico {
+  width: 0.95rem;
+  height: 0.95rem;
+  display: block;
+}
+
+.ws-icon-btn.ws-icon-danger {
+  border-color: var(--danger);
+  color: var(--danger);
 }
 
 .ws-actions {

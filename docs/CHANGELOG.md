@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.30 — 2026-07-22
+
+### Changed
+
+- Workshop: `+` and reset sit on the tower tab row; remove uses a trash icon
+- Defaults and Remove ask for confirmation before applying
+
 ## 0.1.29 — 2026-07-22
 
 ### Changed
