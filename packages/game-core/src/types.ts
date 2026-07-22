@@ -9,6 +9,8 @@ export type MatchPhase = "lobby" | "placement" | "combat" | "ended";
 
 export interface TowerDef {
   id: string;
+  /** Client silhouette id — see TOWER_VISUAL_IDS in loadout. */
+  visualId?: string;
   power: number;
   range: number;
   fireRate: number;

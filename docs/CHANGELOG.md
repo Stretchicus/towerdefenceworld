@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.37 — 2026-07-22
+
+### Added
+
+- Ten procedural tower visuals selectable in the workshop (`visualId` on each loadout tower)
+- Defaults: basic→keep, sniper→orb, mortar→orbit; used on the map and in build/upgrade UI
+
 ## 0.1.36 — 2026-07-22
 
 ### Fixed

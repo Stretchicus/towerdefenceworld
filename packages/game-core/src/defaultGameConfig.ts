@@ -26,6 +26,7 @@ export const defaultGameConfig: GameConfig = {
   towers: {
     basic: {
       id: "basic",
+      visualId: "keep",
       power: 12,
       range: 2,
       fireRate: 6,
@@ -46,6 +47,7 @@ export const defaultGameConfig: GameConfig = {
     },
     sniper: {
       id: "sniper",
+      visualId: "orb",
       power: 8,
       range: 4,
       fireRate: 6,
@@ -66,6 +68,7 @@ export const defaultGameConfig: GameConfig = {
     },
     mortar: {
       id: "mortar",
+      visualId: "orbit",
       power: 16,
       range: 1,
       fireRate: 6,

@@ -750,6 +750,70 @@ button.secondary {
   margin-top: 0.5rem;
 }
 
+.ws-visual-block {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ws-visual-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.ws-visuals {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.3rem;
+}
+
+.ws-visual {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.35rem 0.2rem;
+  border: 1px solid var(--line);
+  background: #0a1822;
+  color: var(--text);
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1.1;
+  cursor: pointer;
+}
+
+.ws-visual.on {
+  border-color: var(--accent2);
+  color: var(--accent2);
+}
+
+.ws-visual .tv-ico {
+  width: 1.35rem;
+  height: 1.35rem;
+}
+
+.ws-visual-name {
+  text-align: center;
+  opacity: 0.85;
+}
+
+.btn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.btn-label .tv-ico {
+  width: 1.05rem;
+  height: 1.05rem;
+  flex-shrink: 0;
+  color: var(--type-color, var(--accent));
+}
+
+.tv-ico {
+  display: block;
+}
+
 .ws-simple label {
   display: grid;
   grid-template-columns: 7.5rem 1fr 2.2rem;

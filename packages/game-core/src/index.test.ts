@@ -335,6 +335,9 @@ describe("match combat", () => {
       }
     }
     const loadout = defaultTowerLoadout(3);
+    assert.equal(loadout[0]!.visualId, "keep");
+    assert.equal(loadout[1]!.visualId, "orb");
+    assert.equal(loadout[2]!.visualId, "orbit");
     const broken = { ...loadout[0]!, power: 40, range: 6 };
     assert.equal(validateTowerDef(broken, 3).ok, false);
   });

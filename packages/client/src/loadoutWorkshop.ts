@@ -7,6 +7,7 @@ import {
   loadoutFileFromTowers,
   maxSliderValue,
   normalizeTowerForResources,
+  normalizeTowerVisualId,
   parseLoadoutFile,
   scoreTowerPoints,
   scoreTowerPointsRaw,
@@ -15,6 +16,7 @@ import {
   type TowerDef,
 } from "@tdw/game-core";
 import { resourceAmountHtml } from "./resourceIcons.js";
+import { towerVisualPickerHtml } from "./towerVisualIcons.js";
 
 export type SliderField = SliderStatField;
 
@@ -313,6 +315,10 @@ export function workshopHtml(state: WorkshopState): string {
   const editors = t
     ? `<div class="ws-simple">
         <label>Id <input data-ws-field="id" value="${escapeHtml(t.id)}" /></label>
+        <div class="ws-visual-block">
+          <span class="ws-visual-label">Visual</span>
+          ${towerVisualPickerHtml(t.visualId)}
+        </div>
         ${simpleSliders}
         <div class="ws-costs"><span>Build ${costChips(t.buildCost)}</span><span>Upgrade ${costChips(t.upgradeCost)}</span></div>
       </div>`
@@ -399,6 +405,20 @@ export function bindWorkshop(
   root.querySelectorAll("[data-ws-select]").forEach((btn) => {
     btn.addEventListener("click", () => {
       state.selectedIndex = Number((btn as HTMLElement).dataset.wsSelect);
+      onChange("hard");
+    });
+  });
+  root.querySelectorAll("[data-ws-visual]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const t = state.towers[state.selectedIndex];
+      if (!t) return;
+      t.visualId = normalizeTowerVisualId(
+        (btn as HTMLElement).dataset.wsVisual,
+      );
+      state.towers[state.selectedIndex] = normalizeTowerForResources(
+        t,
+        state.resourceCount,
+      );
       onChange("hard");
     });
   });

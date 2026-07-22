@@ -71,6 +71,11 @@ export type {
 export {
   TOWER_POINT_POOL,
   BASELINE_FIRE_RATE,
+  TOWER_VISUAL_IDS,
+  TOWER_VISUAL_LABELS,
+  DEFAULT_TOWER_VISUAL,
+  isTowerVisualId,
+  normalizeTowerVisualId,
   SLIDER_POINT_COST,
   SLIDER_MIN,
   allowedSliderFields,
@@ -92,4 +97,5 @@ export type {
   LoadoutValidationResult,
   LoadoutFileV2,
   SliderStatField,
+  TowerVisualId,
 } from "./towers/loadout.js";

@@ -3,6 +3,46 @@ import type { ResourceMap, TowerDef } from "../types.js";
 export const TOWER_POINT_POOL = 100;
 export const BASELINE_FIRE_RATE = 6;
 
+export const TOWER_VISUAL_IDS = [
+  "keep",
+  "orb",
+  "orbit",
+  "spire",
+  "disk",
+  "obelisk",
+  "twin",
+  "crystal",
+  "beacon",
+  "bastion",
+] as const;
+
+export type TowerVisualId = (typeof TOWER_VISUAL_IDS)[number];
+
+export const TOWER_VISUAL_LABELS: Record<TowerVisualId, string> = {
+  keep: "Keep",
+  orb: "Orb spire",
+  orbit: "Orbit tip",
+  spire: "Spire",
+  disk: "Disk array",
+  obelisk: "Obelisk",
+  twin: "Twin barrels",
+  crystal: "Crystal",
+  beacon: "Beacon",
+  bastion: "Bastion",
+};
+
+export const DEFAULT_TOWER_VISUAL: TowerVisualId = "keep";
+
+export function isTowerVisualId(id: string): id is TowerVisualId {
+  return (TOWER_VISUAL_IDS as readonly string[]).includes(id);
+}
+
+export function normalizeTowerVisualId(raw: unknown): TowerVisualId {
+  return typeof raw === "string" && isTowerVisualId(raw)
+    ? raw
+    : DEFAULT_TOWER_VISUAL;
+}
+
 export type SliderStatField =
   | "power"
   | "range"
@@ -143,6 +183,7 @@ export function normalizeTowerForResources(
   resourceCount: number,
 ): TowerDef {
   const next = structuredClone(def);
+  next.visualId = normalizeTowerVisualId(next.visualId);
   if (resourceCount < 3) {
     next.fireRate = BASELINE_FIRE_RATE;
   }
@@ -159,6 +200,13 @@ export function validateTowerDef(
   const errors: string[] = [];
   if (!def?.id || typeof def.id !== "string") {
     errors.push("tower id required");
+  }
+  if (
+    def.visualId != null &&
+    def.visualId !== "" &&
+    !isTowerVisualId(def.visualId)
+  ) {
+    errors.push(`${def.id}: unknown visualId "${def.visualId}"`);
   }
   const powerMax = maxSliderValue("power", resourceCount);
   const rangeMax = maxSliderValue("range", resourceCount);
@@ -258,6 +306,7 @@ function baseTower(
   partial: Partial<TowerDef> & Pick<TowerDef, "id" | "power" | "range">,
 ): TowerDef {
   return {
+    visualId: DEFAULT_TOWER_VISUAL,
     fireRate: BASELINE_FIRE_RATE,
     buildDiscount: 0,
     upgradeDiscount: 0,
@@ -280,17 +329,19 @@ function baseTower(
 /** Default trio — each spends ≤ 100 points for the given resource mode. */
 export function defaultTowerLoadout(resourceCount: number): TowerDef[] {
   const roles = [
-    baseTower({ id: "basic", power: 4, range: 2 }),
+    baseTower({ id: "basic", power: 4, range: 2, visualId: "keep" }),
     baseTower({
       id: "sniper",
       power: 1,
       range: 3,
+      visualId: "orb",
       upgradeStatIncrease: { power: 0.12, range: 0.08 },
     }),
     baseTower({
       id: "mortar",
       power: 7,
       range: 1,
+      visualId: "orbit",
       upgradeStatIncrease: { power: 0.2, range: 0.05 },
     }),
   ];

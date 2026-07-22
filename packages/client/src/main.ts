@@ -8,8 +8,12 @@ import {
   workshopHtml,
   type WorkshopState,
 } from "./loadoutWorkshop.js";
-import type { TowerDef } from "@tdw/game-core";
 import { resourceAmountHtml } from "./resourceIcons.js";
+import { towerVisualIconHtml } from "./towerVisualIcons.js";
+import {
+  DEFAULT_TOWER_VISUAL,
+  type TowerDef,
+} from "@tdw/game-core";
 
 interface LobbyState {
   phase: "lobby";
@@ -104,7 +108,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.36";
+const CLIENT_BUILD = "v0.1.37";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -257,6 +261,14 @@ function towerDefFor(
   const owner =
     m.players.find((p) => p.id === (ownerId ?? playerId)) ?? me();
   return owner?.loadout?.find((t) => t.id === typeId) ?? owner?.loadout?.[0];
+}
+
+function towerVisualFor(
+  m: MatchState,
+  typeId: string | undefined,
+  ownerId?: string,
+): string {
+  return towerDefFor(m, typeId, ownerId)?.visualId ?? DEFAULT_TOWER_VISUAL;
 }
 
 function matchCosts(m: MatchState) {
@@ -779,7 +791,7 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
         const afford = canAffordCost(self.bank, cost);
         const color = TOWER_TYPE_COLORS[t.id] ?? "#9ab";
         return `<button type="button" class="build-btn type-chip ${afford ? "" : "cant-afford"}" data-build-type="${t.id}" ${afford && showTypePicker ? "" : "disabled"} style="--type-color:${color}">
-          <span class="btn-label">${t.id} · p${t.power} r${t.range}</span>
+          <span class="btn-label">${towerVisualIconHtml(t.visualId)} ${t.id} · p${t.power} r${t.range}</span>
           <span class="cost-row">${costChipsHtml(cost, afford)}</span>
         </button>`;
       })
@@ -967,7 +979,7 @@ function renderMatch(): void {
                   : false;
                 const color = TOWER_TYPE_COLORS[t.id] ?? "#9ab";
                 return `<button type="button" class="build-btn type-chip ${afford ? "" : "cant-afford"}" data-build-type="${t.id}" ${afford ? "" : "disabled"} style="--type-color:${color}">
-                  <span class="btn-label">${t.id} · p${t.power} r${t.range}</span>
+                  <span class="btn-label">${towerVisualIconHtml(t.visualId)} ${t.id} · p${t.power} r${t.range}</span>
                   <span class="cost-row">${costChipsHtml(cost, afford)}</span>
                 </button>`;
               })
@@ -1011,8 +1023,9 @@ function renderMatch(): void {
                     ? canAffordCost(self.bank, upCost)
                     : false;
                   const color = TOWER_TYPE_COLORS[t.typeId ?? ""] ?? "#9ab";
-                  return `<button class="secondary build-btn" data-up-tower="${t.id}" ${affordUp ? "" : "disabled"} style="border-left:3px solid ${color}">
-                      <span class="btn-label">Upgrade ${t.typeId ?? "tower"} #${t.cellId} (L${(t.level ?? 0) + 1})</span>
+                  const vis = towerVisualFor(m, t.typeId, t.ownerId);
+                  return `<button class="secondary build-btn" data-up-tower="${t.id}" ${affordUp ? "" : "disabled"} style="border-left:3px solid ${color};--type-color:${color}">
+                      <span class="btn-label">${towerVisualIconHtml(vis)} Upgrade ${t.typeId ?? "tower"} #${t.cellId} (L${(t.level ?? 0) + 1})</span>
                       <span class="cost-row">${costChipsHtml(upCost, affordUp)}</span>
                     </button>`;
                 })
@@ -1104,7 +1117,12 @@ function renderMatch(): void {
     cells: m.planet.cells,
     baseCellIds: m.planet.baseCellIds,
     placed: m.placed,
-    towers: m.towers,
+    towers: m.towers.map((t) => ({
+      cellId: t.cellId,
+      ownerId: t.ownerId,
+      typeId: t.typeId,
+      visualId: towerVisualFor(m, t.typeId, t.ownerId),
+    })),
     mines: m.mines,
     bods: m.bods,
     bodMoveEveryTicks: m.bodMoveEveryTicks ?? 10,

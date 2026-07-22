@@ -1,0 +1,12 @@
+---
+description: Auto-commit meaningful work and always push to origin
+alwaysApply: true
+---
+
+# Git push preference
+
+After creating a git commit for meaningful work in this repo, **always push** to `origin` (same branch) without waiting to be asked.
+
+- Still only commit when appropriate (meaningful completed work / when the user expects it).
+- Do not force-push to main/master.
+- If push fails (auth, conflicts, rejected), report the error and stop.

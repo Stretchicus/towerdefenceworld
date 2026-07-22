@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { createTowerVisual, tickTowerVisual } from "./towerVisuals.js";
 
 export interface CellView {
   id: number;
@@ -16,7 +17,7 @@ export interface PlanetViewData {
     tile: { hasTowerPoint?: boolean; hasMine?: boolean };
     connections: boolean[];
   }[];
-  towers: { cellId: number; ownerId: string }[];
+  towers: { cellId: number; ownerId: string; visualId?: string; typeId?: string }[];
   mines: { cellId: number }[];
   bods: {
     id: string;
@@ -384,12 +385,14 @@ export class PlanetView {
     while (group.children.length) {
       const c = group.children[0]!;
       group.remove(c);
-      if (c instanceof THREE.Mesh || c instanceof THREE.LineSegments) {
-        c.geometry.dispose();
-        const mat = c.material;
-        if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
-        else (mat as THREE.Material).dispose();
-      }
+      c.traverse((obj) => {
+        if (obj instanceof THREE.Mesh || obj instanceof THREE.LineSegments) {
+          obj.geometry.dispose();
+          const mat = obj.material;
+          if (Array.isArray(mat)) mat.forEach((m) => m.dispose());
+          else (mat as THREE.Material).dispose();
+        }
+      });
     }
   }
 
@@ -681,7 +684,9 @@ export class PlanetView {
 
   private static markersFingerprint(data: PlanetViewData): string {
     return [
-      data.towers.map((t) => `${t.cellId}:${t.ownerId}`).join(","),
+      data.towers
+        .map((t) => `${t.cellId}:${t.ownerId}:${t.visualId ?? ""}`)
+        .join(","),
       data.mines.map((m) => m.cellId).join(","),
       data.placed
         .map((p) =>
@@ -783,21 +788,18 @@ export class PlanetView {
     for (const t of data.towers) {
       const cell = cellMap.get(t.cellId);
       if (!cell) continue;
-      const mesh = new THREE.Mesh(
-        new THREE.ConeGeometry(0.045, 0.14, 6),
-        new THREE.MeshStandardMaterial({
-          color: ownerColor.get(t.ownerId) ?? "#fff",
-          emissive: ownerColor.get(t.ownerId) ?? "#fff",
-          emissiveIntensity: 0.35,
-        }),
-      );
+      const team = ownerColor.get(t.ownerId) ?? "#ffffff";
+      const mesh = createTowerVisual(t.visualId, team);
       mesh.position
         .set(cell.center.x, cell.center.y, cell.center.z)
         .normalize()
         .multiplyScalar(R);
-      mesh.lookAt(0, 0, 0);
-      mesh.rotateX(Math.PI / 2);
+      mesh.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        mesh.position.clone().normalize(),
+      );
       mesh.userData.cellId = t.cellId;
+      mesh.userData.towerAnim = true;
       this.markers.add(mesh);
     }
 
@@ -1103,6 +1105,11 @@ export class PlanetView {
         this.localCooldownRemain.set(b.id, remain);
         this.placeBodMesh(mesh, b, cellMap, period, idx, remain);
       }
+    }
+
+    const tSec = now / 1000;
+    for (const child of this.markers.children) {
+      if (child.userData.towerAnim) tickTowerVisual(child, tSec);
     }
 
     this.renderer.render(this.scene, this.camera);
