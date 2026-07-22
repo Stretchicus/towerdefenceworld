@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.32 — 2026-07-22
+
+### Fixed
+
+- Adding a tower keeps the new tower tab selected (no reset to the first tab)
+
+### Changed
+
+- Removed the workshop resource/points status hint under the heading
+
 ## 0.1.31 — 2026-07-22
 
 ### Changed

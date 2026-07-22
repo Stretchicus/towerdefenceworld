@@ -326,7 +326,6 @@ export function workshopHtml(state: WorkshopState): string {
       <h2>TOWER WORKSHOP</h2>
       <div class="ws-head-actions">${downloadBtn}${uploadBtn}</div>
     </div>
-    <p class="hint">${state.resourceCount} resources · 100 points per tower · derived costs · Ready blocked if invalid</p>
     <div class="ws-tower-tabs">${towerTabs || `<span class="hint">Empty</span>`}${addBtn}${defaultsBtn}</div>
     <div class="row ws-actions">${removeBtn}</div>
     ${editors}
