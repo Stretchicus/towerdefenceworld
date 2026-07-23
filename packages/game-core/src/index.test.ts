@@ -154,7 +154,7 @@ describe("placement", () => {
       const rng = createRng(seed);
       const state = createPlacementState(planet, rng);
       let forcedSplitRemaining = 1;
-      let sawBranch = false;
+      let sawSplit = false;
       for (let placed = 0; placed < 3; placed++) {
         const tile = sampleNextTile(state, {
           seatCount: 3,
@@ -167,14 +167,15 @@ describe("placement", () => {
           rng,
           forcedSplitRemaining,
         });
-        sawBranch ||= tile.routeKind === "branch";
-        if (tile.routeKind === "branch") forcedSplitRemaining = 0;
+        const isSplit = tile.id.startsWith("split-");
+        sawSplit ||= isSplit;
+        if (isSplit) forcedSplitRemaining = 0;
         const legal = findLegalPlacements(state, tile);
         assert.ok(legal.length > 0, `seed ${seed}, offer ${placed}`);
         const choice = legal[Math.floor(rng() * legal.length)]!;
         assert.equal(placeTile(state, choice.cellId, tile, choice.rotation), true);
       }
-      assert.ok(sawBranch, `seed ${seed}`);
+      assert.ok(sawSplit, `seed ${seed}`);
     }
   });
 
@@ -297,6 +298,36 @@ describe("placement", () => {
         assert.ok(path && path.length >= 2, `path ${i}-${j}`);
       }
     }
+  });
+
+  it("keeps the 3-seat split guarantee pending after a cross offer", () => {
+    const match = createMatch({
+      id: "forced-split",
+      seed: 1,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "manual",
+        resourceCount: 3,
+        seatCount: 3,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: true },
+        { id: "p2", name: "B", isAi: true },
+        { id: "p3", name: "C", isAi: true },
+      ],
+    });
+
+    const firstRoundIds: string[] = [];
+    for (let turn = 0; turn < 3; turn++) {
+      firstRoundIds.push(currentTile(match)!.id);
+      for (let pulse = 0; pulse < 12; pulse++) runAiPlacement(match);
+    }
+    assert.ok(
+      firstRoundIds.some((id) => id.startsWith("split-")),
+      firstRoundIds.join(", "),
+    );
   });
 
   it("manual placement consumes offers and finishes when bases connect", () => {

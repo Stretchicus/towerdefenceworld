@@ -136,8 +136,9 @@ export function findLegalPlacements(
   tile: TileDef,
 ): { cellId: number; rotation: number }[] {
   const out: { cellId: number; rotation: number }[] = [];
-  for (const cell of state.planet.cells) {
-    if (state.placed.has(cell.id)) continue;
+  const frontier = new Set(listOpenEnds(state).map((end) => end.cellId));
+  for (const cellId of frontier) {
+    const cell = state.planet.cells[cellId]!;
     for (let r = 0; r < cell.sides; r++) {
       if (isLegalPlacement(state, cell.id, tile, r)) {
         out.push({ cellId: cell.id, rotation: r });

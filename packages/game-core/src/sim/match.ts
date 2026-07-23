@@ -10,7 +10,6 @@ import {
 } from "../config.js";
 import { createRng } from "../rng.js";
 import { buildPlanet } from "../planet/goldberg.js";
-import { makeTile } from "../tiles/bag.js";
 import {
   autoBridge,
   basesConnected,
@@ -22,8 +21,6 @@ import {
   type PlacementState,
 } from "../tiles/placement.js";
 import { sampleNextTile } from "../tiles/sampleTile.js";
-import { shapeConnections, type TileShapeId } from "../tiles/shapes.js";
-import { listOpenEnds } from "../tiles/openEnds.js";
 import { findPath, pathLength } from "./pathfinding.js";
 import type {
   GameConfig,
@@ -260,7 +257,7 @@ function runAutoPlacement(state: MatchState): void {
     if (!tile) break;
     const options = findLegalPlacements(state.placement, tile);
     if (options.length === 0) break;
-    const pick = chooseAiPlacement(state, tile, options);
+    const pick = chooseAiPlacement(state, options);
     if (!placeTile(state.placement, pick.cellId, tile, pick.rotation)) break;
     completePlacementTurn(state);
   }
@@ -332,7 +329,7 @@ function sampleOffer(state: MatchState): TileDef | null {
   ) {
     return null;
   }
-  for (let attempt = 0; attempt < 64; attempt++) {
+  try {
     const tile = sampleNextTile(state.placement, {
       seatCount: state.settings.seatCount,
       tilesPlacedNonBase: state.placementTurns,
@@ -346,11 +343,17 @@ function sampleOffer(state: MatchState): TileDef | null {
       rng: state.placementRng,
       forcedSplitRemaining: state.forcedSplitRemaining,
     });
-    if (!tileHasSafePlacement(state.placement, tile)) continue;
-    if (tile.routeKind === "branch" && state.forcedSplitRemaining > 0) {
+    if (tile.id.startsWith("split-") && state.forcedSplitRemaining > 0) {
       state.forcedSplitRemaining--;
     }
     return tile;
+  } catch (error) {
+    if (
+      !(error instanceof Error) ||
+      error.message !== "No tile shape has a legal placement"
+    ) {
+      throw error;
+    }
   }
   autoBridge(state.placement);
   return null;
@@ -390,128 +393,17 @@ export function runAiPlacement(state: MatchState): void {
   if (!tile) return;
   const options = findLegalPlacements(state.placement, tile);
   if (options.length === 0) return;
-  const pick = chooseAiPlacement(state, tile, options);
+  const pick = chooseAiPlacement(state, options);
   intentPlaceTile(state, seat.id, pick.cellId, pick.rotation);
 }
 
 function chooseAiPlacement(
   state: MatchState,
-  tile: TileDef,
   options: { cellId: number; rotation: number }[],
 ): { cellId: number; rotation: number } {
-  let bestScore = -Infinity;
-  let best: typeof options = [];
-  for (const option of options) {
-    if (!placeTile(state.placement, option.cellId, tile, option.rotation)) {
-      continue;
-    }
-    const graph = buildRouteGraph(state.placement);
-    const reached = reachableCells(graph, option.cellId);
-    const connectedBases = state.planet.baseCellIds.filter((id) =>
-      reached.has(id),
-    ).length;
-    const preservesLegalOffer =
-      connectedBases === state.planet.baseCellIds.length ||
-      hasAnyLegalTileShape(state.placement);
-    let nearestOtherBase = Infinity;
-    const componentEnds = listOpenEnds(state.placement).filter((end) =>
-      reached.has(end.fromCellId),
-    );
-    for (const end of componentEnds) {
-      for (const baseId of state.planet.baseCellIds) {
-        if (reached.has(baseId)) continue;
-        nearestOtherBase = Math.min(
-          nearestOtherBase,
-          planetHopDistance(state.planet, end.cellId, baseId),
-        );
-      }
-    }
-    state.placement.placed.delete(option.cellId);
-    const score =
-      (preservesLegalOffer ? 0 : -state.planet.cells.length * 10) +
-      connectedBases * state.planet.cells.length -
-      (Number.isFinite(nearestOtherBase) ? nearestOtherBase : 0);
-    if (score > bestScore) {
-      bestScore = score;
-      best = [option];
-    } else if (score === bestScore) {
-      best.push(option);
-    }
-  }
-  const pool = best.length > 0 ? best : options;
-  return pool[
-    Math.floor(state.placementRng() * pool.length) % pool.length
+  return options[
+    Math.floor(state.placementRng() * options.length) % options.length
   ]!;
-}
-
-const AI_TILE_SHAPES: TileShapeId[] = [
-  "straight",
-  "bend",
-  "split",
-  "cross",
-];
-
-function hasAnyLegalTileShape(placement: PlacementState): boolean {
-  return AI_TILE_SHAPES.some((shape) => {
-    const tile = makeTile(shape, shapeConnections(shape));
-    return findLegalPlacements(placement, tile).length > 0;
-  });
-}
-
-function tileHasSafePlacement(
-  placement: PlacementState,
-  tile: TileDef,
-): boolean {
-  for (const option of findLegalPlacements(placement, tile)) {
-    if (!placeTile(placement, option.cellId, tile, option.rotation)) continue;
-    const safe =
-      basesConnected(placement) || hasAnyLegalTileShape(placement);
-    placement.placed.delete(option.cellId);
-    if (safe) return true;
-  }
-  return false;
-}
-
-function reachableCells(
-  graph: Map<number, number[]>,
-  start: number,
-): Set<number> {
-  const seen = new Set<number>([start]);
-  const pending = [start];
-  while (pending.length > 0) {
-    const current = pending.pop()!;
-    for (const neighbor of graph.get(current) ?? []) {
-      if (seen.has(neighbor)) continue;
-      seen.add(neighbor);
-      pending.push(neighbor);
-    }
-  }
-  return seen;
-}
-
-function planetHopDistance(
-  planet: Planet,
-  start: number,
-  goal: number,
-): number {
-  if (start === goal) return 0;
-  const seen = new Set<number>([start]);
-  let frontier = [start];
-  let distance = 0;
-  while (frontier.length > 0) {
-    distance++;
-    const next: number[] = [];
-    for (const current of frontier) {
-      for (const neighbor of planet.cells[current]!.neighbors) {
-        if (neighbor === goal) return distance;
-        if (seen.has(neighbor)) continue;
-        seen.add(neighbor);
-        next.push(neighbor);
-      }
-    }
-    frontier = next;
-  }
-  return Infinity;
 }
 
 export function pickSpawnTarget(state: MatchState, owner: PlayerState): string {
