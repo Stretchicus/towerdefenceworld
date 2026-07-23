@@ -560,6 +560,161 @@ describe("match combat", () => {
     assert.equal(match.bods[0]!.targetPlayerId, "p3");
   });
 
+  it("skips an owner-blocked branch when another enemy branch is open", () => {
+    const match = createMatch({
+      id: "blocked-junction-reroute",
+      seed: 1,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 2,
+        seatCount: 3,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+        { id: "p3", name: "C", isAi: false },
+      ],
+    });
+    match.planet.baseCellIds = [0, 4, 5];
+    match.routeGraph = new Map([
+      [0, [1]],
+      [1, [0, 2, 3]],
+      [2, [1, 4]],
+      [3, [1, 5]],
+      [4, [2]],
+      [5, [3]],
+    ]);
+    match.edgeBlocks.get("p1")!.add(edgeKey(1, 3));
+    match.placementRng = createRng(1);
+    for (const player of match.players) {
+      player.bodEnabled = { grunt: false, bruiser: false };
+    }
+    match.bods.push({
+      id: "bod-blocked-junction",
+      ownerId: "p1",
+      typeId: "grunt",
+      hp: 40,
+      maxHp: 40,
+      cellId: 1,
+      path: [0, 1, 3, 5],
+      pathIndex: 1,
+      moveCooldown: 0,
+      held: {},
+      pickups: [],
+      targetPlayerId: "p3",
+      buildRemaining: 0,
+    });
+
+    tickMatch(match);
+
+    assert.equal(match.bods[0]!.cellId, 2);
+    assert.equal(match.bods[0]!.targetPlayerId, "p2");
+  });
+
+  it("reverses when every forward route is owner-blocked", () => {
+    const match = createMatch({
+      id: "blocked-forward-reverse",
+      seed: 1,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 2,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+      ],
+    });
+    match.planet.baseCellIds = [0, 2];
+    match.routeGraph = new Map([
+      [0, [1]],
+      [1, [0, 2]],
+      [2, [1]],
+    ]);
+    match.edgeBlocks.get("p1")!.add(edgeKey(1, 2));
+    for (const player of match.players) {
+      player.bodEnabled = { grunt: false, bruiser: false };
+    }
+    match.bods.push({
+      id: "bod-reverse",
+      ownerId: "p1",
+      typeId: "grunt",
+      hp: 40,
+      maxHp: 40,
+      cellId: 1,
+      path: [0, 1, 2],
+      pathIndex: 1,
+      moveCooldown: 0,
+      held: {},
+      pickups: [],
+      targetPlayerId: "p2",
+      buildRemaining: 0,
+    });
+
+    tickMatch(match);
+
+    assert.equal(match.bods[0]!.cellId, 0);
+    assert.equal(match.bods[0]!.targetPlayerId, "p1");
+  });
+
+  it("damages the owner's castle after reversing into it", () => {
+    const match = createMatch({
+      id: "reverse-friendly-castle-damage",
+      seed: 1,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 2,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+      ],
+    });
+    match.planet.baseCellIds = [0, 2];
+    match.routeGraph = new Map([
+      [0, [1]],
+      [1, [0, 2]],
+      [2, [1]],
+    ]);
+    match.edgeBlocks.get("p1")!.add(edgeKey(1, 2));
+    match.config.bodMoveEveryTicks = 1;
+    for (const player of match.players) {
+      player.bodEnabled = { grunt: false, bruiser: false };
+    }
+    const owner = match.players[0]!;
+    const hpBefore = owner.baseHp;
+    match.bods.push({
+      id: "bod-friendly-castle",
+      ownerId: owner.id,
+      typeId: "grunt",
+      hp: 40,
+      maxHp: 40,
+      cellId: 1,
+      path: [0, 1, 2],
+      pathIndex: 1,
+      moveCooldown: 0,
+      held: {},
+      pickups: [],
+      targetPlayerId: "p2",
+      buildRemaining: 0,
+    });
+
+    for (let i = 0; i < 5; i++) tickMatch(match);
+
+    assert.equal(owner.baseHp, hpBefore - 40);
+    assert.equal(match.bods.length, 0);
+  });
+
   it("picks alive spawn targets even when legacy target flags are disabled", () => {
     const match = createMatch({
       id: "alive-target",

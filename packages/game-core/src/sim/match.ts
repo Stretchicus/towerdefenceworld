@@ -22,7 +22,7 @@ import {
 } from "../tiles/placement.js";
 import { sampleNextTile } from "../tiles/sampleTile.js";
 import { edgeKey } from "../tiles/openEnds.js";
-import { findPath, pathLength } from "./pathfinding.js";
+import { pathLength } from "./pathfinding.js";
 import {
   pickRandomContinuationToAliveEnemy,
   pickRandomPathToAliveEnemy,
@@ -456,6 +456,7 @@ function playerAtBaseCell(state: MatchState, cellId: number): PlayerState | null
 function refreshBodRoute(state: MatchState, bod: BodInstance): void {
   const owner = state.players.find((player) => player.id === bod.ownerId);
   if (!owner) return;
+  const ownerBlocks = state.edgeBlocks.get(owner.id) ?? new Set<string>();
   const previous =
     bod.pathIndex > 0 ? (bod.path[bod.pathIndex - 1] ?? null) : null;
   let continuation =
@@ -475,14 +476,24 @@ function refreshBodRoute(state: MatchState, bod: BodInstance): void {
           owner,
           state.placementRng,
         );
-  if (!continuation && previous !== null) {
-    continuation = pickRandomPathToAliveEnemy(
-      state.routeGraph,
-      bod.cellId,
-      state,
-      owner,
-      state.placementRng,
+  if (
+    !continuation &&
+    previous !== null &&
+    !ownerBlocks.has(edgeKey(bod.cellId, previous))
+  ) {
+    continuation = [bod.cellId, previous];
+  }
+  if (!continuation) {
+    const options = (state.routeGraph.get(bod.cellId) ?? []).filter(
+      (neighbor) => !ownerBlocks.has(edgeKey(bod.cellId, neighbor)),
     );
+    if (options.length > 0) {
+      const optionIndex =
+        options.length === 1
+          ? 0
+          : Math.floor(state.placementRng() * options.length) % options.length;
+      continuation = [bod.cellId, options[optionIndex]!];
+    }
   }
   if (!continuation) return;
 
@@ -799,9 +810,7 @@ export function tickMatch(state: MatchState): void {
       ? (playerAtBaseCell(state, path[path.length - 1]!)?.id ?? owner.id)
       : pickSpawnTarget(state, owner);
     if (!path) {
-      path = findPath(state.routeGraph, start, baseCell(state, targetId)) ?? [
-        start,
-      ];
+      path = [start];
     }
     state.bods.push({
       id: `bod-${state.nextEntityId++}`,
@@ -859,10 +868,14 @@ export function tickMatch(state: MatchState): void {
 
   // Move bods along edges over bodMoveEveryTicks (travel during cooldown, not wait-then-jump)
   for (const bod of [...state.bods]) {
+    const castleContact = playerAtBaseCell(state, bod.cellId);
+    const targetCastleContact =
+      castleContact?.id === bod.targetPlayerId ? castleContact : null;
     const currentTarget = state.players.find(
       (player) => player.id === bod.targetPlayerId,
     );
     if (
+      !targetCastleContact &&
       bod.pathIndex >= bod.path.length - 1 &&
       (!currentTarget?.alive ||
         currentTarget.teamId ===
@@ -885,10 +898,17 @@ export function tickMatch(state: MatchState): void {
         bod.moveCooldown--;
         continue;
       }
-      if (bod.cellId === baseCell(state, bod.targetPlayerId)) {
-        const target = state.players.find((p) => p.id === bod.targetPlayerId);
+      const target =
+        playerAtBaseCell(state, bod.cellId)?.id === bod.targetPlayerId
+          ? currentTarget
+          : null;
+      if (target) {
         const owner = state.players.find((p) => p.id === bod.ownerId);
-        if (target && owner && target.teamId !== owner.teamId && target.alive) {
+        if (
+          owner &&
+          target.alive &&
+          (target.id === owner.id || target.teamId !== owner.teamId)
+        ) {
           // Damage equals remaining bod HP (damaged bods hit softer)
           target.baseHp -= Math.max(0, bod.hp);
           if (target.baseHp <= 0) {

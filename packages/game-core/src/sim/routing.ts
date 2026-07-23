@@ -1,3 +1,5 @@
+import { edgeKey } from "../tiles/openEnds.js";
+
 export interface RoutingPlayer {
   id: string;
   teamId: string;
@@ -7,6 +9,7 @@ export interface RoutingPlayer {
 export interface RoutingState {
   players: RoutingPlayer[];
   planet: { baseCellIds: number[] };
+  edgeBlocks?: ReadonlyMap<string, ReadonlySet<string>>;
 }
 
 function aliveEnemyBases(
@@ -29,6 +32,7 @@ function canReachEnemy(
   viaNeighbor: number,
   blocked: ReadonlySet<number>,
   enemyBases: ReadonlySet<number>,
+  blockedEdges: ReadonlySet<string>,
 ): boolean {
   if (blocked.has(viaNeighbor)) return false;
   const seen = new Set(blocked);
@@ -38,7 +42,10 @@ function canReachEnemy(
     const cell = pending.pop()!;
     if (enemyBases.has(cell)) return true;
     for (const neighbor of graph.get(cell) ?? []) {
-      if (!seen.has(neighbor)) {
+      if (
+        !seen.has(neighbor) &&
+        !blockedEdges.has(edgeKey(cell, neighbor))
+      ) {
         seen.add(neighbor);
         pending.push(neighbor);
       }
@@ -62,6 +69,7 @@ export function reachesAliveEnemy(
     viaNeighbor,
     blocked,
     aliveEnemyBases(state, ownerTeamId),
+    new Set(),
   );
 }
 
@@ -74,6 +82,7 @@ function pickPath(
   rng: () => number,
 ): number[] | null {
   const enemyBases = aliveEnemyBases(state, owner.teamId);
+  const blockedEdges = state.edgeBlocks?.get(owner.id) ?? new Set<string>();
   if (enemyBases.has(start)) return [start];
 
   const path = [start];
@@ -85,7 +94,8 @@ function pickPath(
     const options = (graph.get(current) ?? []).filter(
       (neighbor) =>
         !visited.has(neighbor) &&
-        canReachEnemy(graph, neighbor, visited, enemyBases),
+        !blockedEdges.has(edgeKey(current, neighbor)) &&
+        canReachEnemy(graph, neighbor, visited, enemyBases, blockedEdges),
     );
     if (options.length === 0) return null;
     const optionIndex =
