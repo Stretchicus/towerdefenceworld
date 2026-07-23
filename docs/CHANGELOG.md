@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.54 — 2026-07-23
+
+### Changed
+
+- Mine visual is a timber headframe with a winding wheel (resource-coloured rim/bucket)
+- Pickup orbs keep resource colours (no longer overwritten by bod team tint) and orbit farther out
+
 ## 0.1.53 — 2026-07-23
 
 ### Added

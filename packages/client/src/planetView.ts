@@ -121,11 +121,17 @@ function disposeObject3D(root: THREE.Object3D): void {
 
 function applyBodTint(root: THREE.Object3D, tint: string): void {
   root.traverse((obj) => {
-    if (obj instanceof THREE.Mesh) {
-      const mat = obj.material as THREE.MeshStandardMaterial;
-      mat.color.set(tint);
-      mat.emissive.set(tint);
+    if (!(obj instanceof THREE.Mesh)) return;
+    // Pickup orbs keep resource colours — do not recolour with team tint
+    if (obj.userData.part === "pickupOrb") return;
+    let p: THREE.Object3D | null = obj.parent;
+    while (p) {
+      if (p.userData.part === "pickups") return;
+      p = p.parent;
     }
+    const mat = obj.material as THREE.MeshStandardMaterial;
+    mat.color.set(tint);
+    mat.emissive.set(tint);
   });
 }
 
@@ -1188,10 +1194,10 @@ export class PlanetView {
       for (const orb of ring.children) {
         const i = (orb.userData.pickupIndex as number) ?? 0;
         const angle = tSec * 2.2 + (i / n) * Math.PI * 2;
-        const radius = 0.042 + (i % 3) * 0.006;
+        const radius = 0.078 + (i % 3) * 0.012;
         orb.position.set(
           Math.cos(angle) * radius,
-          0.02 + Math.sin(tSec * 3 + i) * 0.006,
+          0.028 + Math.sin(tSec * 3 + i) * 0.01,
           Math.sin(angle) * radius,
         );
       }
