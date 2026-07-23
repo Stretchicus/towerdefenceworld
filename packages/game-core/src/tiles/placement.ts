@@ -1,4 +1,5 @@
 import { bridgeTileTemplate, rotateConnections } from "./bag.js";
+import { listOpenEnds } from "./openEnds.js";
 import type {
   Planet,
   PlanetCell,
@@ -77,6 +78,7 @@ export function isLegalPlacement(
 ): boolean {
   if (state.placed.has(cellId)) return false;
   if (state.baseCellIds.includes(cellId)) return false;
+  if (!listOpenEnds(state).some((e) => e.cellId === cellId)) return false;
   const cell = state.planet.cells[cellId];
   if (!cell) return false;
 

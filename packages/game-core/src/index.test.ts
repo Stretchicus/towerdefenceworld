@@ -8,7 +8,9 @@ import {
   createMatch,
   createPlacementState,
   createRng,
+  isLegalPlacement,
   listOpenEnds,
+  makeTile,
   defaultTowerLoadout,
   deriveTowerCosts,
   generateTileBag,
@@ -87,6 +89,49 @@ describe("goldberg planet", () => {
 });
 
 describe("placement", () => {
+  it("only allows placement on open route ends", () => {
+    const planet = buildPlanet("small", 2);
+    const rng = createRng(1);
+    const placement = createPlacementState(planet, rng);
+    const straight = makeTile("straight", [true, false, false, true, false, false]);
+    const openEndIds = new Set(listOpenEnds(placement).map((e) => e.cellId));
+
+    const stubId = planet.baseCellIds[0]!;
+    let farCellId: number | null = null;
+    const seen = new Set<number>([stubId]);
+    for (const mid of planet.cells[stubId]!.neighbors) {
+      seen.add(mid);
+      for (const n of planet.cells[mid]!.neighbors) {
+        if (seen.has(n)) continue;
+        if (placement.placed.has(n)) continue;
+        if (openEndIds.has(n)) continue;
+        farCellId = n;
+        break;
+      }
+      if (farCellId !== null) break;
+    }
+    assert.ok(farCellId !== null, "need a cell two hops from a stub");
+    const farCell = planet.cells[farCellId]!;
+    for (let r = 0; r < farCell.sides; r++) {
+      assert.equal(
+        isLegalPlacement(placement, farCellId, straight, r),
+        false,
+        `far cell rotation ${r}`,
+      );
+    }
+
+    const end = listOpenEnds(placement)[0]!;
+    const endCell = planet.cells[end.cellId]!;
+    let legal = false;
+    for (let r = 0; r < endCell.sides; r++) {
+      if (isLegalPlacement(placement, end.cellId, straight, r)) {
+        legal = true;
+        break;
+      }
+    }
+    assert.ok(legal, "expected legal straight on open-end neighbour");
+  });
+
   it("each base starts with exactly one open edge and one open end", () => {
     const planet = buildPlanet("small", 2);
     const rng = createRng(1);
