@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.55 — 2026-07-23
+
+### Added
+
+- Grow-from-ends placement: each castle starts with one road stub; tiles may only be placed on open route ends until all castles connect
+- Legal tile sampler with split/join pressure (no dead draws; early splits in 3-player games)
+- Drag-and-drop tile placement with click/right-click rotate among legal orientations for the hovered end
+- Per-player no-entry signs: click a road edge during combat to block your own bods; unlimited toggles, invisible to enemies
+
+### Changed
+
+- Combat pathing picks randomly among branches that reach an alive enemy castle (not shortest-path only)
+- Bods reverse when blocked and can damage their owner's castle if retreat locks them in
+
+### Removed
+
+- Targets HUD and `targetEnabled` control; bods only chase alive enemy castles
+- Preplanned corridor placement flow (replaced by grow-from-ends network building)
+
 ## 0.1.54 — 2026-07-23
 
 ### Changed
