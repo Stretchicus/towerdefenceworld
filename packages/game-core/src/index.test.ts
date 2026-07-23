@@ -8,6 +8,7 @@ import {
   createMatch,
   createPlacementState,
   createRng,
+  currentTile,
   isLegalPlacement,
   listOpenEnds,
   makeTile,
@@ -266,9 +267,9 @@ describe("placement", () => {
     assert.ok(state.placed.size > planet.baseCellIds.length);
   });
 
-  it("corridor network links every base pair without dead-end stubs", () => {
+  it("auto placement grows from base ends until every base connects", () => {
     const match = createMatch({
-      id: "corr",
+      id: "grow-auto",
       seed: 3,
       settings: {
         mode: "ffa",
@@ -285,6 +286,9 @@ describe("placement", () => {
       ],
     });
     assert.equal(match.phase, "combat");
+    assert.ok(match.placementTurns > 0);
+    assert.ok(match.placementTurns <= match.config.placementTurnCap);
+    assert.equal(match.currentOffer, null);
     const bases = match.planet.baseCellIds;
     assert.equal(bases.length, 3);
     for (let i = 0; i < bases.length; i++) {
@@ -293,26 +297,38 @@ describe("placement", () => {
         assert.ok(path && path.length >= 2, `path ${i}-${j}`);
       }
     }
-    // Corridor cells only: every placed non-base tile is on a corridor cell
-    for (const [id, placed] of match.placement.placed) {
-      if (match.planet.baseCellIds.includes(id)) continue;
-      assert.ok(
-        match.corridors.cellIds.has(id),
-        `non-corridor placement ${id}`,
-      );
-      void placed;
+  });
+
+  it("manual placement consumes offers and finishes when bases connect", () => {
+    const match = createMatch({
+      id: "grow-manual",
+      seed: 17,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "manual",
+        resourceCount: 2,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: true },
+        { id: "p2", name: "B", isAi: true },
+      ],
+    });
+
+    while (match.phase === "placement") {
+      const offer = currentTile(match);
+      assert.ok(offer, "placement phase must expose an offer");
+      const legal = findLegalPlacements(match.placement, offer);
+      assert.ok(legal.length > 0, "offer must have a legal open-end placement");
+      const before = match.placementTurns;
+      for (let pulse = 0; pulse < 12; pulse++) runAiPlacement(match);
+      assert.equal(match.placementTurns, before + 1);
     }
-    const towers = [...match.placement.placed.values()].filter(
-      (p) =>
-        p.tile.hasTowerPoint &&
-        !match.planet.baseCellIds.includes(p.cellId),
-    ).length;
-    assert.ok(towers >= 5, `expected ≥5 tower pads, got ${towers}`);
-    assert.ok(
-      match.corridors.cellIds.size >=
-        Math.floor(match.planet.cells.length * 0.75),
-      `corridor fill ${match.corridors.cellIds.size}/${match.planet.cells.length}`,
-    );
+
+    assert.ok(basesConnected(match.placement));
+    assert.equal(match.currentOffer, null);
   });
 });
 

@@ -10,21 +10,20 @@ import {
 } from "../config.js";
 import { createRng } from "../rng.js";
 import { buildPlanet } from "../planet/goldberg.js";
-import {
-  buildCorridorNetwork,
-  fillCorridorPlacement,
-  findLegalCorridorPlacements,
-  generateCorridorBag,
-  isLegalCorridorPlacement,
-  type CorridorNetwork,
-} from "../tiles/corridors.js";
+import { makeTile } from "../tiles/bag.js";
 import {
   autoBridge,
   basesConnected,
   buildRouteGraph,
   createPlacementState,
+  findLegalPlacements,
+  isLegalPlacement,
+  placeTile,
   type PlacementState,
 } from "../tiles/placement.js";
+import { sampleNextTile } from "../tiles/sampleTile.js";
+import { shapeConnections, type TileShapeId } from "../tiles/shapes.js";
+import { listOpenEnds } from "../tiles/openEnds.js";
 import { findPath, pathLength } from "./pathfinding.js";
 import type {
   GameConfig,
@@ -109,8 +108,10 @@ export interface MatchState {
   tick: number;
   planet: Planet;
   placement: PlacementState;
-  tileBag: TileDef[];
-  bagIndex: number;
+  currentOffer: TileDef | null;
+  placementTurns: number;
+  forcedSplitRemaining: number;
+  placementRng: () => number;
   currentSeat: number;
   players: PlayerState[];
   towers: TowerStructure[];
@@ -123,7 +124,6 @@ export interface MatchState {
   routeGraph: Map<number, number[]>;
   /** Pulses while waiting on an AI placement seat (throttle) */
   aiPlacementPulse: number;
-  corridors: CorridorNetwork;
 }
 
 export function assignTeams(
@@ -181,22 +181,8 @@ export function createMatch(input: CreateMatchInput): MatchState {
   }
   const resources = activeResources(config, settings.resourceCount);
   const planet = buildPlanet(settings.worldSize, settings.seatCount);
-  const placement = createPlacementState(planet);
-  const rngBag = createRng(input.seed);
-  const corridors = buildCorridorNetwork(planet, planet.baseCellIds, {
-    rng: createRng(input.seed ^ 0xc0ffee),
-    fillFraction: config.corridorFillFraction,
-  });
-  const tileBag =
-    settings.placementMode === "manual"
-      ? generateCorridorBag(corridors, planet, planet.baseCellIds, {
-          towerPointChance: config.towerPointChance,
-          mineChance: config.mineChance,
-          minTowerPoints: config.minTowerPoints,
-          resources,
-          rng: rngBag,
-        })
-      : []; // auto fills corridors directly — no bag
+  const placementRng = createRng(input.seed);
+  const placement = createPlacementState(planet, placementRng);
   const teams = assignTeams(
     settings.mode,
     input.seats.map((s) => s.id),
@@ -239,8 +225,10 @@ export function createMatch(input: CreateMatchInput): MatchState {
     tick: 0,
     planet,
     placement,
-    tileBag,
-    bagIndex: 0,
+    currentOffer: null,
+    placementTurns: 0,
+    forcedSplitRemaining: settings.seatCount === 3 ? 1 : 0,
+    placementRng,
     currentSeat: 0,
     players,
     towers: [],
@@ -252,43 +240,41 @@ export function createMatch(input: CreateMatchInput): MatchState {
     nextEntityId: 1,
     routeGraph: buildRouteGraph(placement),
     aiPlacementPulse: 0,
-    corridors,
   };
+  state.currentOffer = sampleOffer(state);
 
   if (settings.placementMode === "auto") {
     runAutoPlacement(state);
-  } else {
-    skipUnplaceableTiles(state);
   }
 
   return state;
 }
 
 function runAutoPlacement(state: MatchState): void {
-  const rng = createRng(state.seed ^ 0x9e3779b9);
-  fillCorridorPlacement(state.placement, state.corridors, {
-    towerPointChance: state.config.towerPointChance,
-    mineChance: state.config.mineChance,
-    minTowerPoints: state.config.minTowerPoints,
-    resources: state.resources,
-    rng,
-  });
-  state.bagIndex = state.tileBag.length;
-  finishPlacement(state);
+  while (
+    state.phase === "placement" &&
+    !basesConnected(state.placement) &&
+    state.placementTurns < state.config.placementTurnCap
+  ) {
+    const tile = state.currentOffer;
+    if (!tile) break;
+    const options = findLegalPlacements(state.placement, tile);
+    if (options.length === 0) break;
+    const pick = chooseAiPlacement(state, tile, options);
+    if (!placeTile(state.placement, pick.cellId, tile, pick.rotation)) break;
+    completePlacementTurn(state);
+  }
+  if (state.phase === "placement") finishPlacement(state);
 }
 
 export function finishPlacement(state: MatchState): void {
-  // Ensure full corridor network (no missing segments / dead ends)
-  fillCorridorPlacement(state.placement, state.corridors, {
-    towerPointChance: state.config.towerPointChance,
-    mineChance: state.config.mineChance,
-    minTowerPoints: state.config.minTowerPoints,
-    resources: state.resources,
-    rng: createRng(state.seed ^ 0x51f),
-  });
-  if (!basesConnected(state.placement)) {
+  if (
+    !basesConnected(state.placement) &&
+    state.placementTurns >= state.config.placementTurnCap
+  ) {
     autoBridge(state.placement);
   }
+  state.currentOffer = null;
   state.routeGraph = buildRouteGraph(state.placement);
   state.phase = "combat";
   const seconds =
@@ -299,8 +285,7 @@ export function finishPlacement(state: MatchState): void {
 }
 
 export function currentTile(state: MatchState): TileDef | null {
-  if (state.bagIndex >= state.tileBag.length) return null;
-  return state.tileBag[state.bagIndex]!;
+  return state.currentOffer;
 }
 
 export function intentPlaceTile(
@@ -319,28 +304,12 @@ export function intentPlaceTile(
   if (!tile) return { ok: false, error: "bag_empty" };
 
   let rot = rotation;
-  if (
-    !isLegalCorridorPlacement(
-      state.placement,
-      state.corridors,
-      cellId,
-      tile,
-      rot,
-    )
-  ) {
+  if (!isLegalPlacement(state.placement, cellId, tile, rot)) {
     const cell = state.planet.cells[cellId];
     if (!cell) return { ok: false, error: "illegal" };
     let found = false;
     for (let r = 0; r < cell.sides; r++) {
-      if (
-        isLegalCorridorPlacement(
-          state.placement,
-          state.corridors,
-          cellId,
-          tile,
-          r,
-        )
-      ) {
+      if (isLegalPlacement(state.placement, cellId, tile, r)) {
         rot = r;
         found = true;
         break;
@@ -349,46 +318,58 @@ export function intentPlaceTile(
     if (!found) return { ok: false, error: "illegal" };
   }
 
-  // Force place with exact corridor mask after validating
-  const required = state.corridors.requiredOpen.get(cellId)!;
-  const cell = state.planet.cells[cellId]!;
-  state.placement.placed.set(cellId, {
-    cellId,
-    tile,
-    rotation: rot,
-    connections: required.slice(0, cell.sides),
-  });
-  state.bagIndex++;
-  state.routeGraph = buildRouteGraph(state.placement);
-  advancePlacementTurn(state);
+  if (!placeTile(state.placement, cellId, tile, rot)) {
+    return { ok: false, error: "illegal" };
+  }
+  completePlacementTurn(state);
   return { ok: true };
 }
 
-function skipUnplaceableTiles(state: MatchState): void {
-  while (state.bagIndex < state.tileBag.length) {
-    const tile = currentTile(state);
-    if (!tile) break;
-    if (
-      findLegalCorridorPlacements(state.placement, state.corridors, tile)
-        .length > 0
-    ) {
-      return;
+function sampleOffer(state: MatchState): TileDef | null {
+  if (
+    basesConnected(state.placement) ||
+    state.placementTurns >= state.config.placementTurnCap
+  ) {
+    return null;
+  }
+  for (let attempt = 0; attempt < 64; attempt++) {
+    const tile = sampleNextTile(state.placement, {
+      seatCount: state.settings.seatCount,
+      tilesPlacedNonBase: state.placementTurns,
+      roundIndex: Math.floor(
+        state.placementTurns / Math.max(1, state.settings.seatCount),
+      ),
+      splitChance: state.config.splitChance,
+      resources: state.resources,
+      towerPointChance: state.config.towerPointChance,
+      mineChance: state.config.mineChance,
+      rng: state.placementRng,
+      forcedSplitRemaining: state.forcedSplitRemaining,
+    });
+    if (!tileHasSafePlacement(state.placement, tile)) continue;
+    if (tile.routeKind === "branch" && state.forcedSplitRemaining > 0) {
+      state.forcedSplitRemaining--;
     }
-    state.bagIndex++;
+    return tile;
   }
-  if (state.bagIndex >= state.tileBag.length) {
-    finishPlacement(state);
-  }
+  autoBridge(state.placement);
+  return null;
 }
 
-function advancePlacementTurn(state: MatchState): void {
-  if (state.bagIndex >= state.tileBag.length) {
+function completePlacementTurn(state: MatchState): void {
+  state.placementTurns++;
+  state.routeGraph = buildRouteGraph(state.placement);
+  if (
+    basesConnected(state.placement) ||
+    state.placementTurns >= state.config.placementTurnCap
+  ) {
     finishPlacement(state);
     return;
   }
   state.currentSeat = (state.currentSeat + 1) % state.players.length;
   state.aiPlacementPulse = 0;
-  skipUnplaceableTiles(state);
+  state.currentOffer = sampleOffer(state);
+  if (!state.currentOffer) finishPlacement(state);
 }
 
 /** Simple AI intents for a seat — one tile every ~1.2s at 10Hz pulses */
@@ -407,17 +388,130 @@ export function runAiPlacement(state: MatchState): void {
 
   const tile = currentTile(state);
   if (!tile) return;
-  const options = findLegalCorridorPlacements(
-    state.placement,
-    state.corridors,
-    tile,
-  );
-  if (options.length === 0) {
-    skipUnplaceableTiles(state);
-    return;
-  }
-  const pick = options[0]!;
+  const options = findLegalPlacements(state.placement, tile);
+  if (options.length === 0) return;
+  const pick = chooseAiPlacement(state, tile, options);
   intentPlaceTile(state, seat.id, pick.cellId, pick.rotation);
+}
+
+function chooseAiPlacement(
+  state: MatchState,
+  tile: TileDef,
+  options: { cellId: number; rotation: number }[],
+): { cellId: number; rotation: number } {
+  let bestScore = -Infinity;
+  let best: typeof options = [];
+  for (const option of options) {
+    if (!placeTile(state.placement, option.cellId, tile, option.rotation)) {
+      continue;
+    }
+    const graph = buildRouteGraph(state.placement);
+    const reached = reachableCells(graph, option.cellId);
+    const connectedBases = state.planet.baseCellIds.filter((id) =>
+      reached.has(id),
+    ).length;
+    const preservesLegalOffer =
+      connectedBases === state.planet.baseCellIds.length ||
+      hasAnyLegalTileShape(state.placement);
+    let nearestOtherBase = Infinity;
+    const componentEnds = listOpenEnds(state.placement).filter((end) =>
+      reached.has(end.fromCellId),
+    );
+    for (const end of componentEnds) {
+      for (const baseId of state.planet.baseCellIds) {
+        if (reached.has(baseId)) continue;
+        nearestOtherBase = Math.min(
+          nearestOtherBase,
+          planetHopDistance(state.planet, end.cellId, baseId),
+        );
+      }
+    }
+    state.placement.placed.delete(option.cellId);
+    const score =
+      (preservesLegalOffer ? 0 : -state.planet.cells.length * 10) +
+      connectedBases * state.planet.cells.length -
+      (Number.isFinite(nearestOtherBase) ? nearestOtherBase : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      best = [option];
+    } else if (score === bestScore) {
+      best.push(option);
+    }
+  }
+  const pool = best.length > 0 ? best : options;
+  return pool[
+    Math.floor(state.placementRng() * pool.length) % pool.length
+  ]!;
+}
+
+const AI_TILE_SHAPES: TileShapeId[] = [
+  "straight",
+  "bend",
+  "split",
+  "cross",
+];
+
+function hasAnyLegalTileShape(placement: PlacementState): boolean {
+  return AI_TILE_SHAPES.some((shape) => {
+    const tile = makeTile(shape, shapeConnections(shape));
+    return findLegalPlacements(placement, tile).length > 0;
+  });
+}
+
+function tileHasSafePlacement(
+  placement: PlacementState,
+  tile: TileDef,
+): boolean {
+  for (const option of findLegalPlacements(placement, tile)) {
+    if (!placeTile(placement, option.cellId, tile, option.rotation)) continue;
+    const safe =
+      basesConnected(placement) || hasAnyLegalTileShape(placement);
+    placement.placed.delete(option.cellId);
+    if (safe) return true;
+  }
+  return false;
+}
+
+function reachableCells(
+  graph: Map<number, number[]>,
+  start: number,
+): Set<number> {
+  const seen = new Set<number>([start]);
+  const pending = [start];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    for (const neighbor of graph.get(current) ?? []) {
+      if (seen.has(neighbor)) continue;
+      seen.add(neighbor);
+      pending.push(neighbor);
+    }
+  }
+  return seen;
+}
+
+function planetHopDistance(
+  planet: Planet,
+  start: number,
+  goal: number,
+): number {
+  if (start === goal) return 0;
+  const seen = new Set<number>([start]);
+  let frontier = [start];
+  let distance = 0;
+  while (frontier.length > 0) {
+    distance++;
+    const next: number[] = [];
+    for (const current of frontier) {
+      for (const neighbor of planet.cells[current]!.neighbors) {
+        if (neighbor === goal) return distance;
+        if (seen.has(neighbor)) continue;
+        seen.add(neighbor);
+        next.push(neighbor);
+      }
+    }
+    frontier = next;
+  }
+  return Infinity;
 }
 
 export function pickSpawnTarget(state: MatchState, owner: PlayerState): string {
@@ -900,8 +994,8 @@ export function serializeMatch(state: MatchState) {
     tick: state.tick,
     settings: state.settings,
     resources: state.resources,
-    bagIndex: state.bagIndex,
-    bagTotal: state.tileBag.length,
+    bagIndex: state.placementTurns,
+    bagTotal: state.config.placementTurnCap,
     currentSeat: state.currentSeat,
     currentPlayerId: state.players[state.currentSeat]?.id ?? null,
     placementMode: state.settings.placementMode,
@@ -911,15 +1005,11 @@ export function serializeMatch(state: MatchState) {
         ? (() => {
             const tile = currentTile(state);
             return tile
-              ? findLegalCorridorPlacements(
-                  state.placement,
-                  state.corridors,
-                  tile,
-                )
+              ? findLegalPlacements(state.placement, tile)
               : [];
           })()
         : [],
-    corridorCellIds: [...state.corridors.cellIds],
+    corridorCellIds: [],
     winnerIds: state.winnerIds,
     combatEndsAtTick: state.combatEndsAtTick,
     planet: {

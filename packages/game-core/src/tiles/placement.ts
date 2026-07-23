@@ -252,6 +252,12 @@ export function autoPlaceBag(
  * that are still empty (graph distance on planet adjacency, not route).
  */
 export function autoBridge(state: PlacementState): void {
+  let carveGuard = 0;
+  while (!basesConnected(state) && carveGuard++ < state.baseCellIds.length) {
+    if (!carveOpenEndsTogether(state)) break;
+  }
+  if (basesConnected(state)) return;
+
   let guard = 0;
   while (!basesConnected(state) && guard++ < 500) {
     const graph = buildRouteGraph(state);
@@ -287,6 +293,93 @@ export function autoBridge(state: PlacementState): void {
       const tile = bridgeTileTemplate(1000 + guard);
       if (!autoPlaceOne(state, tile, () => 0.5)) break;
     }
+  }
+  carveGuard = 0;
+  while (!basesConnected(state) && carveGuard++ < state.baseCellIds.length) {
+    if (!carveOpenEndsTogether(state)) break;
+  }
+}
+
+function carveOpenEndsTogether(state: PlacementState): boolean {
+  const graph = buildRouteGraph(state);
+  const components = baseComponents(state, graph);
+  if (components.length < 2) return false;
+  const reachableA = reachableFrom(graph, components[0]![0]!);
+  const reachableB = reachableFrom(graph, components[1]![0]!);
+  const ends = listOpenEnds(state);
+  const sources = ends.filter((end) => reachableA.has(end.fromCellId));
+  const targets = ends.filter((end) => reachableB.has(end.fromCellId));
+  if (sources.length === 0 || targets.length === 0) return false;
+  const targetByCell = new Map(targets.map((end) => [end.cellId, end]));
+  const pending = sources.map((end) => end.cellId);
+  const previous = new Map<number, number | null>(
+    sources.map((end) => [end.cellId, null]),
+  );
+  let goal: number | null = null;
+  while (pending.length > 0 && goal === null) {
+    const current = pending.shift()!;
+    if (targetByCell.has(current)) {
+      goal = current;
+      break;
+    }
+    for (const neighbor of state.planet.cells[current]!.neighbors) {
+      if (previous.has(neighbor)) continue;
+      previous.set(neighbor, current);
+      pending.push(neighbor);
+    }
+  }
+  if (goal === null) return false;
+  const path: number[] = [];
+  for (let current: number | null = goal; current !== null; ) {
+    path.push(current);
+    current = previous.get(current) ?? null;
+  }
+  path.reverse();
+  const source = sources.find((end) => end.cellId === path[0])!;
+  const target = targetByCell.get(goal)!;
+  const route = [source.fromCellId, ...path, target.fromCellId];
+  for (let i = 0; i < route.length - 1; i++) {
+    openEdge(state, route[i]!, route[i + 1]!);
+  }
+  return true;
+}
+
+function reachableFrom(
+  graph: Map<number, number[]>,
+  start: number,
+): Set<number> {
+  const seen = new Set<number>([start]);
+  const pending = [start];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    for (const neighbor of graph.get(current) ?? []) {
+      if (seen.has(neighbor)) continue;
+      seen.add(neighbor);
+      pending.push(neighbor);
+    }
+  }
+  return seen;
+}
+
+function openEdge(state: PlacementState, a: number, b: number): void {
+  for (const [cellId, neighborId] of [
+    [a, b],
+    [b, a],
+  ] as const) {
+    const cell = state.planet.cells[cellId]!;
+    const edge = neighborEdgeIndex(cell, neighborId);
+    let placed = state.placed.get(cellId);
+    if (!placed) {
+      const tile = bridgeTileTemplate(cellId);
+      placed = {
+        cellId,
+        tile,
+        rotation: 0,
+        connections: Array(cell.sides).fill(false),
+      };
+      state.placed.set(cellId, placed);
+    }
+    placed.connections[edge] = true;
   }
 }
 
