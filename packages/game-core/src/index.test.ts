@@ -16,14 +16,18 @@ import {
   generateTileBag,
   defaultGameConfig,
   findPath,
+  findLegalPlacements,
   intentBuildTower,
   normalizeTowerForResources,
   parseLoadoutFile,
   pay,
+  placeTile,
+  sampleNextTile,
   scaleCost,
   scoreTowerPoints,
   scoreTowerPointsRaw,
   serializeMatch,
+  shapeConnections,
   startingBankFor,
   TOWER_POINT_POOL,
   tickMatch,
@@ -89,6 +93,115 @@ describe("goldberg planet", () => {
 });
 
 describe("placement", () => {
+  it("uses the canonical tile shape masks", () => {
+    assert.deepEqual(shapeConnections("straight"), [
+      true,
+      false,
+      false,
+      true,
+      false,
+      false,
+    ]);
+    assert.deepEqual(shapeConnections("bend"), [
+      true,
+      false,
+      true,
+      false,
+      false,
+      false,
+    ]);
+    assert.deepEqual(shapeConnections("split"), [
+      true,
+      false,
+      true,
+      false,
+      true,
+      false,
+    ]);
+    assert.deepEqual(shapeConnections("cross"), [
+      true,
+      true,
+      true,
+      true,
+      false,
+      false,
+    ]);
+  });
+
+  it("samples only tiles with a legal placement", () => {
+    for (let seed = 1; seed <= 30; seed++) {
+      const planet = buildPlanet("small", 2);
+      const rng = createRng(seed);
+      const state = createPlacementState(planet, rng);
+      const tile = sampleNextTile(state, {
+        seatCount: 2,
+        tilesPlacedNonBase: 0,
+        roundIndex: 0,
+        splitChance: 0.22,
+        resources: ["stone", "power"],
+        towerPointChance: 0.35,
+        mineChance: 0.2,
+        rng,
+      });
+      assert.ok(findLegalPlacements(state, tile).length > 0, `seed ${seed}`);
+    }
+  });
+
+  it("guarantees a split in the first three 3-seat offers", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const planet = buildPlanet("small", 3);
+      const rng = createRng(seed);
+      const state = createPlacementState(planet, rng);
+      let forcedSplitRemaining = 1;
+      let sawBranch = false;
+      for (let placed = 0; placed < 3; placed++) {
+        const tile = sampleNextTile(state, {
+          seatCount: 3,
+          tilesPlacedNonBase: placed,
+          roundIndex: 0,
+          splitChance: 0.22,
+          resources: ["stone", "power", "water"],
+          towerPointChance: 0.35,
+          mineChance: 0.2,
+          rng,
+          forcedSplitRemaining,
+        });
+        sawBranch ||= tile.routeKind === "branch";
+        if (tile.routeKind === "branch") forcedSplitRemaining = 0;
+        const legal = findLegalPlacements(state, tile);
+        assert.ok(legal.length > 0, `seed ${seed}, offer ${placed}`);
+        const choice = legal[Math.floor(rng() * legal.length)]!;
+        assert.equal(placeTile(state, choice.cellId, tile, choice.rotation), true);
+      }
+      assert.ok(sawBranch, `seed ${seed}`);
+    }
+  });
+
+  it("does not sample splits in the first 2-seat round", () => {
+    for (let seed = 1; seed <= 20; seed++) {
+      const planet = buildPlanet("small", 2);
+      const rng = createRng(seed);
+      const state = createPlacementState(planet, rng);
+      for (let placed = 0; placed < 2; placed++) {
+        const tile = sampleNextTile(state, {
+          seatCount: 2,
+          tilesPlacedNonBase: placed,
+          roundIndex: 0,
+          splitChance: 1,
+          resources: ["stone", "power"],
+          towerPointChance: 0,
+          mineChance: 0,
+          rng,
+        });
+        assert.equal(tile.routeKind, "single", `seed ${seed}, offer ${placed}`);
+        const legal = findLegalPlacements(state, tile);
+        assert.ok(legal.length > 0);
+        const choice = legal[Math.floor(rng() * legal.length)]!;
+        assert.equal(placeTile(state, choice.cellId, tile, choice.rotation), true);
+      }
+    }
+  });
+
   it("only allows placement on open route ends", () => {
     const planet = buildPlanet("small", 2);
     const rng = createRng(1);

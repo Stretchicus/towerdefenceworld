@@ -38,6 +38,10 @@ export {
   listOpenEnds,
 } from "./tiles/openEnds.js";
 export type { OpenEnd } from "./tiles/openEnds.js";
+export { shapeConnections } from "./tiles/shapes.js";
+export type { TileShapeId } from "./tiles/shapes.js";
+export { sampleNextTile } from "./tiles/sampleTile.js";
+export type { SampleTileOpts } from "./tiles/sampleTile.js";
 export {
   buildCorridorNetwork,
   fillCorridorPlacement,

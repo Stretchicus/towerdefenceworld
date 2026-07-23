@@ -70,6 +70,8 @@ export interface GameConfig {
   /** Fraction of planet cells that should lie on meandering corridors */
   corridorFillFraction: number;
   mineChance: number;
+  splitChance: number;
+  placementTurnCap: number;
   tickRateHz: number;
   /** Combat ticks between each bod step along the route (higher = slower) */
   bodMoveEveryTicks: number;

@@ -19,6 +19,8 @@ export const defaultGameConfig: GameConfig = {
   minTowerPoints: 5,
   corridorFillFraction: 0.75,
   mineChance: 0.2,
+  splitChance: 0.22,
+  placementTurnCap: 200,
   tickRateHz: 10,
   bodMoveEveryTicks: 10,
   timedMatchSeconds: 300,
