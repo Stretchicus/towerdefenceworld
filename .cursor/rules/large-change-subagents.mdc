@@ -1,0 +1,12 @@
+---
+description: Prefer subagent-driven development for large multi-task changes
+alwaysApply: true
+---
+
+# Large-change execution
+
+For large changes (multi-task implementation plans, multi-subsystem features, or work spanning several packages/files with a written plan):
+
+- Prefer **subagent-driven development** (fresh implementer subagent per task + task review between tasks).
+- Do not ask which execution style to use when a plan already exists — default to subagents unless the user says otherwise for that session.
+- Keep using inline work only for small single-task fixes or when the user explicitly asks to stay in-session.
