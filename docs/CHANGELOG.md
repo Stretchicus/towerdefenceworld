@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.1.56 — 2026-07-23
+
+### Fixed
+
+- Auto/manual placement finish seals open stubs so roads never dead-end into empty land
+- Open join arms draw as half-ribbons on already-placed tiles (road to the edge you attach to)
+
+### Changed
+
+- Current tile is held under the cursor on your turn — click a green end to place (no grab from the HUD)
+
 ## 0.1.55 — 2026-07-23
 
 ### Added

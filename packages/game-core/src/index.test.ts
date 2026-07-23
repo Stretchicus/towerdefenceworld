@@ -294,6 +294,11 @@ describe("placement", () => {
     assert.ok(match.placementTurns > 0);
     assert.ok(match.placementTurns <= match.config.placementTurnCap);
     assert.equal(match.currentOffer, null);
+    assert.equal(
+      listOpenEnds(match.placement).length,
+      0,
+      "auto finish must seal dead-end stubs",
+    );
     const bases = match.planet.baseCellIds;
     assert.equal(bases.length, 3);
     for (let i = 0; i < bases.length; i++) {

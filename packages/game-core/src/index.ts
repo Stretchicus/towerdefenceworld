@@ -36,6 +36,7 @@ export type { PlacementState } from "./tiles/placement.js";
 export {
   edgeKey,
   listOpenEnds,
+  sealOpenEndsFacingEmpty,
 } from "./tiles/openEnds.js";
 export type { OpenEnd } from "./tiles/openEnds.js";
 export { shapeConnections } from "./tiles/shapes.js";

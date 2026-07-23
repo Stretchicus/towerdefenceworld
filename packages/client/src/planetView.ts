@@ -197,6 +197,8 @@ export class PlanetView {
   private localBodPathIndex = new Map<string, number>();
   private pointerMode: "idle" | "orbit" | "draggingTile" = "idle";
   private tileDragPointerId: number | null = null;
+  /** When true (your placement turn), the current tile follows the cursor — no grab needed. */
+  private tileHoldEnabled = false;
   private secondTouch:
     | { pointerId: number; startX: number; startY: number; moved: boolean }
     | null = null;
@@ -311,7 +313,7 @@ export class PlanetView {
     });
     window.addEventListener("pointerdown", (e) => {
       if (
-        this.pointerMode === "draggingTile" &&
+        (this.pointerMode === "draggingTile" || this.tileHoldEnabled) &&
         e.pointerType === "touch" &&
         e.pointerId !== this.tileDragPointerId &&
         !this.secondTouch
@@ -363,6 +365,7 @@ export class PlanetView {
       if (this.pointerMode === "draggingTile") return;
       if (this.pointerMode !== "orbit") {
         this.updateHover(e);
+        if (this.tileHoldEnabled) this.redrawTileDragGhost();
         return;
       }
       const dx = e.clientX - this.prevX;
@@ -465,6 +468,17 @@ export class PlanetView {
     this.spin = on;
   }
 
+  /** Hold the current tile under the cursor on your placement turn. */
+  setTileHoldEnabled(on: boolean): void {
+    this.tileHoldEnabled = on;
+    if (!on) {
+      if (this.pointerMode === "draggingTile") this.cancelTileDrag();
+      else this.clearGroup(this.tileDragGhost);
+      return;
+    }
+    this.redrawTileDragGhost();
+  }
+
   beginTileDrag(e: PointerEvent): void {
     if (
       this.interactionMode !== "placement" ||
@@ -487,7 +501,9 @@ export class PlanetView {
   setPlacementPreview(connections: boolean[], rotation: number): void {
     this.placementConnections = [...connections];
     this.placementRotation = rotation;
-    if (this.pointerMode === "draggingTile") this.redrawTileDragGhost();
+    if (this.pointerMode === "draggingTile" || this.tileHoldEnabled) {
+      this.redrawTileDragGhost();
+    }
   }
 
   private finishTileDrag(e: PointerEvent): void {
@@ -503,16 +519,20 @@ export class PlanetView {
     this.pointerMode = "idle";
     this.tileDragPointerId = null;
     this.secondTouch = null;
-    this.clearGroup(this.tileDragGhost);
+    if (!this.tileHoldEnabled) this.clearGroup(this.tileDragGhost);
+    else this.redrawTileDragGhost();
   }
 
   private redrawTileDragGhost(): void {
     this.clearGroup(this.tileDragGhost);
     const cellId = this.hoverCellId;
+    const holding =
+      this.pointerMode === "draggingTile" || this.tileHoldEnabled;
     if (
-      this.pointerMode !== "draggingTile" ||
+      !holding ||
       cellId === null ||
-      !this.legalCellIds.has(cellId)
+      !this.legalCellIds.has(cellId) ||
+      this.placementConnections.length === 0
     ) {
       return;
     }
@@ -701,9 +721,12 @@ export class PlanetView {
       }
     }
     if (!cellHit) return;
-    // Placement-only selection highlight (combat clicks must not stick)
     if (this.interactionMode === "placement") {
       this.selectedCell = cellHit.cellId;
+      if (this.legalCellIds.has(cellHit.cellId)) {
+        this.onTileDrop?.(cellHit.cellId, this.placementRotation);
+        return;
+      }
     }
     this.onCellClick?.(cellHit.cellId);
   }
@@ -734,7 +757,9 @@ export class PlanetView {
     );
     if (this.interactionMode !== "placement") {
       this.selectedCell = null;
+      this.tileHoldEnabled = false;
       if (this.pointerMode === "draggingTile") this.cancelTileDrag();
+      else this.clearGroup(this.tileDragGhost);
     }
 
     const placedMap = new Map(data.placed.map((p) => [p.cellId, p]));
@@ -993,19 +1018,9 @@ export class PlanetView {
       for (let i = 0; i < cell.neighbors.length; i++) {
         if (!(placed.connections[i] ?? false)) continue;
         const nid = cell.neighbors[i]!;
-        const nPlaced = placedMap.get(nid);
-        if (!nPlaced) continue;
         const nCell = cellMap.get(nid);
         if (!nCell) continue;
-        const back = nCell.neighbors.indexOf(cell.id);
-        if (back < 0 || !(nPlaced.connections[back] ?? false)) continue;
-        const key =
-          placed.cellId < nid
-            ? `${placed.cellId}:${nid}`
-            : `${nid}:${placed.cellId}`;
-        if (drawn.has(key)) continue;
-        drawn.add(key);
-
+        const nPlaced = placedMap.get(nid);
         const cA = new THREE.Vector3(
           cell.center.x,
           cell.center.y,
@@ -1017,12 +1032,37 @@ export class PlanetView {
           nCell.center.z,
         );
         const ca = faceCenter(cA);
-        const cb = faceCenter(cB);
         const edge = edgeToward(cell, cB);
-        const mid = edge?.mid ?? ca.clone().lerp(cb, 0.5).normalize().multiplyScalar(
-          ca.length() * 0.5 + cb.length() * 0.5,
-        );
-        // Face centre → shared edge → neighbour centre (continuous across the join)
+        const mid =
+          edge?.mid ??
+          ca
+            .clone()
+            .lerp(faceCenter(cB), 0.5)
+            .normalize()
+            .multiplyScalar(ca.length());
+
+        if (!nPlaced) {
+          // Open stub: show road from face centre to the join edge
+          const stubKey = `${placed.cellId}>${nid}`;
+          if (drawn.has(stubKey)) continue;
+          drawn.add(stubKey);
+          addRibbon([ca, mid], {
+            cellA: Math.min(placed.cellId, nid),
+            cellB: Math.max(placed.cellId, nid),
+          });
+          continue;
+        }
+
+        const back = nCell.neighbors.indexOf(cell.id);
+        if (back < 0 || !(nPlaced.connections[back] ?? false)) continue;
+        const key =
+          placed.cellId < nid
+            ? `${placed.cellId}:${nid}`
+            : `${nid}:${placed.cellId}`;
+        if (drawn.has(key)) continue;
+        drawn.add(key);
+
+        const cb = faceCenter(cB);
         addRibbon([ca, mid, cb], {
           cellA: Math.min(placed.cellId, nid),
           cellB: Math.max(placed.cellId, nid),

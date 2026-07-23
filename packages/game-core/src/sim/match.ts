@@ -21,7 +21,7 @@ import {
   type PlacementState,
 } from "../tiles/placement.js";
 import { sampleNextTile } from "../tiles/sampleTile.js";
-import { edgeKey } from "../tiles/openEnds.js";
+import { edgeKey, listOpenEnds, sealOpenEndsFacingEmpty } from "../tiles/openEnds.js";
 import { pathLength } from "./pathfinding.js";
 import {
   pickRandomContinuationToAliveEnemy,
@@ -265,7 +265,7 @@ function runAutoPlacement(state: MatchState): void {
     if (!tile) break;
     const options = findLegalPlacements(state.placement, tile);
     if (options.length === 0) break;
-    const pick = chooseAiPlacement(state, options);
+    const pick = chooseAiPlacement(state, tile, options);
     if (!placeTile(state.placement, pick.cellId, tile, pick.rotation)) break;
     completePlacementTurn(state);
   }
@@ -279,6 +279,8 @@ export function finishPlacement(state: MatchState): void {
   ) {
     autoBridge(state.placement);
   }
+  // Never leave roads into empty land once placement ends (auto or manual).
+  sealOpenEndsFacingEmpty(state.placement);
   state.currentOffer = null;
   state.routeGraph = buildRouteGraph(state.placement);
   state.phase = "combat";
@@ -401,16 +403,50 @@ export function runAiPlacement(state: MatchState): void {
   if (!tile) return;
   const options = findLegalPlacements(state.placement, tile);
   if (options.length === 0) return;
-  const pick = chooseAiPlacement(state, options);
+  const pick = chooseAiPlacement(state, tile, options);
   intentPlaceTile(state, seat.id, pick.cellId, pick.rotation);
 }
 
 function chooseAiPlacement(
   state: MatchState,
+  tile: TileDef,
   options: { cellId: number; rotation: number }[],
 ): { cellId: number; rotation: number } {
-  return options[
-    Math.floor(state.placementRng() * options.length) % options.length
+  let bestScore = -Infinity;
+  let best: typeof options = [];
+  for (const option of options) {
+    if (!placeTile(state.placement, option.cellId, tile, option.rotation)) {
+      continue;
+    }
+    const graph = buildRouteGraph(state.placement);
+    const reached = new Set<number>();
+    const pending = [option.cellId];
+    reached.add(option.cellId);
+    while (pending.length) {
+      const cur = pending.pop()!;
+      for (const n of graph.get(cur) ?? []) {
+        if (reached.has(n)) continue;
+        reached.add(n);
+        pending.push(n);
+      }
+    }
+    const connectedBases = state.planet.baseCellIds.filter((id) =>
+      reached.has(id),
+    ).length;
+    const openEnds = listOpenEnds(state.placement).length;
+    state.placement.placed.delete(option.cellId);
+    // Prefer connecting bases, then fewer open stubs (avoids sprawling dead arms).
+    const score = connectedBases * 1000 - openEnds;
+    if (score > bestScore) {
+      bestScore = score;
+      best = [option];
+    } else if (score === bestScore) {
+      best.push(option);
+    }
+  }
+  const pool = best.length > 0 ? best : options;
+  return pool[
+    Math.floor(state.placementRng() * pool.length) % pool.length
   ]!;
 }
 

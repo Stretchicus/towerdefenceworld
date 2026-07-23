@@ -111,7 +111,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.55";
+const CLIENT_BUILD = "v0.1.56";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -526,7 +526,7 @@ function refreshTilePreviewPanel(): void {
       <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
       <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
     </div>
-    <p class="hint">Drag this tile to a <strong>green</strong> end. Right-click, second-finger tap, or use the buttons to rotate.</p>`;
+    <p class="hint">You're holding this tile — click a <strong>green</strong> end to place. Right-click, second-finger tap, or use the buttons to rotate. Drag empty space to spin the planet.</p>`;
   document.getElementById("btn-rot-cw")?.addEventListener("click", () => {
     rotatePlacement(1);
   });
@@ -785,16 +785,7 @@ function renderLobby(): void {
 }
 
 function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
-  document
-    .getElementById("tile-preview-wrap")
-    ?.addEventListener("pointerdown", (event) => {
-      const e = event as PointerEvent;
-      if ((e.target as HTMLElement).closest("button")) return;
-      e.preventDefault();
-      e.stopPropagation();
-      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-      planet.beginTileDrag(e);
-    });
+  // Tile is held under the cursor on your turn — HUD is preview/rotate only.
   hud.querySelectorAll("[data-bod]").forEach((btn) => {
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
@@ -1164,15 +1155,15 @@ function renderMatch(): void {
             <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
             <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
           </div>
-          <p class="hint">Drag this tile to a <strong>green</strong> end. Right-click, second-finger tap, or use the buttons to rotate.</p>
+          <p class="hint">You're holding this tile — click a <strong>green</strong> end to place. Right-click, second-finger tap, or use the buttons to rotate. Drag empty space to spin the planet.</p>
         </div>`
         : "";
 
     const turnBanner =
       m.phase === "placement" && m.placementMode === "manual"
         ? myTurn
-          ? `<p class="turn-banner yours">Your turn — place on a green cell (${m.bagIndex + 1}/${m.bagTotal}).</p>`
-          : `<p class="turn-banner">Waiting for ${turnPlayer?.name ?? "…"} (${m.bagIndex}/${m.bagTotal})</p>`
+          ? `<p class="turn-banner yours">Your turn — click a green end to place (${m.bagIndex}/${m.bagTotal}).</p>`
+          : `<p class="turn-banner">Waiting for ${turnPlayer?.name ?? "…"}</p>`
         : m.phase === "placement"
           ? `<p class="turn-banner">Auto-placing routes…</p>`
           : "";
@@ -1277,6 +1268,14 @@ function renderMatch(): void {
     planet.refreshMarkers(viewData);
   }
   planet.setPlacementPreview(tile?.connections ?? [], placementRotation);
+  planet.setTileHoldEnabled(
+    !!(
+      myTurn &&
+      m.phase === "placement" &&
+      m.placementMode === "manual" &&
+      tile?.connections?.length
+    ),
+  );
 }
 
 planet.onCellClick = (cellId) => {

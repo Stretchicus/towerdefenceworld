@@ -23,3 +23,22 @@ export function listOpenEnds(state: PlacementState): OpenEnd[] {
   }
   return ends;
 }
+
+/**
+ * Close every open connection that faces an empty (unplaced) neighbour.
+ * Call when leaving placement so auto/manual boards never keep dead-end stubs.
+ */
+export function sealOpenEndsFacingEmpty(state: PlacementState): number {
+  let sealed = 0;
+  for (const [cellId, tile] of state.placed) {
+    const cell = state.planet.cells[cellId]!;
+    for (let i = 0; i < cell.neighbors.length; i++) {
+      if (!(tile.connections[i] ?? false)) continue;
+      const neighbor = cell.neighbors[i]!;
+      if (state.placed.has(neighbor)) continue;
+      tile.connections[i] = false;
+      sealed++;
+    }
+  }
+  return sealed;
+}
