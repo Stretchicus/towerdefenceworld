@@ -129,8 +129,12 @@ function broadcast(room: Room, msg: ServerMessage): void {
 
 function broadcastState(room: Room): void {
   if (room.match) {
-    const state = serializeMatch(room.match);
-    broadcast(room, { type: "state", state });
+    for (const seat of room.seats) {
+      seat.send?.({
+        type: "state",
+        state: serializeMatch(room.match, seat.id),
+      });
+    }
     if (room.match.phase === "ended") {
       broadcast(room, { type: "ended", winnerIds: room.match.winnerIds });
       stopTicks(room);
@@ -224,7 +228,10 @@ export function handleMessage(
               token: seat.token,
               playerId: seat.id,
             });
-            send({ type: "state", state: serializeMatch(room.match) });
+            send({
+              type: "state",
+              state: serializeMatch(room.match, seat.id),
+            });
             return { roomCode: room.code, playerId: seat.id };
           }
         }

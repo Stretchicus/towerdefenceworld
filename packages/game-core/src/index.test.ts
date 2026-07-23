@@ -9,6 +9,7 @@ import {
   createPlacementState,
   createRng,
   currentTile,
+  edgeKey,
   isLegalPlacement,
   listOpenEnds,
   makeTile,
@@ -19,6 +20,7 @@ import {
   findPath,
   findLegalPlacements,
   intentBuildTower,
+  intentToggleNoEntry,
   normalizeTowerForResources,
   parseLoadoutFile,
   pay,
@@ -366,6 +368,75 @@ describe("placement", () => {
 });
 
 describe("match combat", () => {
+  it("toggles a player's no-entry block on an existing route edge", () => {
+    const match = createMatch({
+      id: "no-entry-toggle",
+      seed: 7,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 2,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+      ],
+    });
+    const [cellA, neighbors] = match.routeGraph.entries().next().value!;
+    const cellB = neighbors[0]!;
+    const key = edgeKey(cellA, cellB);
+
+    assert.deepEqual(intentToggleNoEntry(match, "p1", cellA, cellB), {
+      ok: true,
+    });
+    assert.equal(match.edgeBlocks.get("p1")?.has(key), true);
+
+    assert.deepEqual(intentToggleNoEntry(match, "p1", cellB, cellA), {
+      ok: true,
+    });
+    assert.equal(match.edgeBlocks.get("p1")?.has(key), false);
+  });
+
+  it("serializes only the viewing player's no-entry blocks", () => {
+    const match = createMatch({
+      id: "no-entry-private",
+      seed: 7,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 2,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+      ],
+    });
+    const edges = [...match.routeGraph].flatMap(([cellA, neighbors]) =>
+      neighbors
+        .filter((cellB) => cellA < cellB)
+        .map((cellB) => [cellA, cellB] as const),
+    );
+    assert.ok(edges.length >= 2);
+    const [a1, a2] = edges[0]!;
+    const [b1, b2] = edges[1]!;
+    assert.equal(intentToggleNoEntry(match, "p1", a1, a2).ok, true);
+    assert.equal(intentToggleNoEntry(match, "p2", b1, b2).ok, true);
+
+    assert.deepEqual(serializeMatch(match, "p1").myEdgeBlocks, [
+      edgeKey(a1, a2),
+    ]);
+    assert.deepEqual(serializeMatch(match, "p2").myEdgeBlocks, [
+      edgeKey(b1, b2),
+    ]);
+    assert.equal("myEdgeBlocks" in serializeMatch(match), false);
+  });
+
   it("chooses seeded random branches that reach an alive enemy castle", () => {
     const graph = new Map<number, number[]>([
       [0, [1]],

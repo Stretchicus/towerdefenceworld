@@ -21,6 +21,7 @@ import {
   type PlacementState,
 } from "../tiles/placement.js";
 import { sampleNextTile } from "../tiles/sampleTile.js";
+import { edgeKey } from "../tiles/openEnds.js";
 import { findPath, pathLength } from "./pathfinding.js";
 import {
   pickRandomContinuationToAliveEnemy,
@@ -123,6 +124,7 @@ export interface MatchState {
   combatEndsAtTick: number | null;
   nextEntityId: number;
   routeGraph: Map<number, number[]>;
+  edgeBlocks: Map<string, Set<string>>;
   /** Pulses while waiting on an AI placement seat (throttle) */
   aiPlacementPulse: number;
 }
@@ -240,6 +242,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
     combatEndsAtTick: null,
     nextEntityId: 1,
     routeGraph: buildRouteGraph(placement),
+    edgeBlocks: new Map(players.map((player) => [player.id, new Set<string>()])),
     aiPlacementPulse: 0,
   };
   state.currentOffer = sampleOffer(state);
@@ -524,6 +527,31 @@ export function intentToggleFriendlyFire(
   const t = state.towers.find((x) => x.id === towerId && x.ownerId === playerId);
   if (!t) return { ok: false };
   t.friendlyFire = enabled;
+  return { ok: true };
+}
+
+export function intentToggleNoEntry(
+  state: MatchState,
+  playerId: string,
+  cellA: number,
+  cellB: number,
+): { ok: boolean; error?: string } {
+  if (state.phase !== "combat") return { ok: false, error: "not_combat" };
+  if (!state.players.some((player) => player.id === playerId)) {
+    return { ok: false, error: "missing_player" };
+  }
+  if (!(state.routeGraph.get(cellA) ?? []).includes(cellB)) {
+    return { ok: false, error: "not_route_edge" };
+  }
+
+  let blocks = state.edgeBlocks.get(playerId);
+  if (!blocks) {
+    blocks = new Set();
+    state.edgeBlocks.set(playerId, blocks);
+  }
+  const key = edgeKey(cellA, cellB);
+  if (blocks.has(key)) blocks.delete(key);
+  else blocks.add(key);
   return { ok: true };
 }
 
@@ -959,7 +987,7 @@ export function runAiCombat(state: MatchState): void {
 }
 
 /** Public snapshot for clients (JSON-safe) */
-export function serializeMatch(state: MatchState) {
+export function serializeMatch(state: MatchState, viewerId?: string) {
   return {
     id: state.id,
     phase: state.phase,
@@ -1057,6 +1085,9 @@ export function serializeMatch(state: MatchState) {
       targetPlayerId: b.targetPlayerId,
     })),
     buildQueue: state.buildQueue,
+    ...(viewerId === undefined
+      ? {}
+      : { myEdgeBlocks: [...(state.edgeBlocks.get(viewerId) ?? [])] }),
   };
 }
 

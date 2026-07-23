@@ -65,6 +65,7 @@ export {
   intentToggleTarget,
   intentToggleBod,
   intentToggleFriendlyFire,
+  intentToggleNoEntry,
   intentBuildTower,
   intentClaimMine,
   intentUpgrade,
