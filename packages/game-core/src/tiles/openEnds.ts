@@ -42,3 +42,41 @@ export function sealOpenEndsFacingEmpty(state: PlacementState): number {
   }
   return sealed;
 }
+
+/**
+ * Remove non-base spur tips (route degree ≤ 1) until every remaining road
+ * is on a path between castles — no cul-de-sac dead ends.
+ */
+export function pruneDeadEndSpurs(
+  state: PlacementState,
+  buildGraph: (s: PlacementState) => Map<number, number[]>,
+): number {
+  let removed = 0;
+  let guard = 0;
+  const max = state.placed.size + 8;
+  while (guard++ < max) {
+    sealOpenEndsFacingEmpty(state);
+    const graph = buildGraph(state);
+    let tip: number | null = null;
+    for (const cellId of state.placed.keys()) {
+      if (state.baseCellIds.includes(cellId)) continue;
+      const deg = graph.get(cellId)?.length ?? 0;
+      if (deg <= 1) {
+        tip = cellId;
+        break;
+      }
+    }
+    if (tip === null) break;
+    const neighbors = graph.get(tip) ?? [];
+    state.placed.delete(tip);
+    for (const n of neighbors) {
+      const np = state.placed.get(n);
+      if (!np) continue;
+      const edge = state.planet.cells[n]!.neighbors.indexOf(tip);
+      if (edge >= 0) np.connections[edge] = false;
+    }
+    removed++;
+  }
+  sealOpenEndsFacingEmpty(state);
+  return removed;
+}

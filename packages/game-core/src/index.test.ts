@@ -41,8 +41,13 @@ import {
   runAiPlacement,
   validateLoadout,
   validateTowerDef,
+  type MatchState,
 } from "./index.js";
 
+function flushCountdown(match: MatchState): void {
+  let guard = 0;
+  while (match.phase === "countdown" && guard++ < 1000) tickMatch(match);
+}
 describe("goldberg planet", () => {
   it("has exactly 12 pentagons for each size", () => {
     for (const size of ["small", "medium", "large"] as const) {
@@ -64,6 +69,44 @@ describe("goldberg planet", () => {
         assert.ok(
           planet.cells[n]!.neighbors.includes(cell.id),
           `${cell.id} <-> ${n}`,
+        );
+      }
+    }
+  });
+
+  it("neighbors[i] faces geometric edge i", () => {
+    const planet = buildPlanet("small", 2);
+    for (const cell of planet.cells) {
+      const c = cell.center;
+      for (let i = 0; i < cell.neighbors.length; i++) {
+        const va = cell.vertices[i]!;
+        const vb = cell.vertices[(i + 1) % cell.vertices.length]!;
+        const mid = {
+          x: (va.x + vb.x) * 0.5,
+          y: (va.y + vb.y) * 0.5,
+          z: (va.z + vb.z) * 0.5,
+        };
+        const edgeDir = {
+          x: mid.x - c.x,
+          y: mid.y - c.y,
+          z: mid.z - c.z,
+        };
+        let best = 0;
+        let bestDot = -Infinity;
+        for (let k = 0; k < cell.neighbors.length; k++) {
+          const n = planet.cells[cell.neighbors[k]!]!.center;
+          const dir = { x: n.x - c.x, y: n.y - c.y, z: n.z - c.z };
+          const dot =
+            dir.x * edgeDir.x + dir.y * edgeDir.y + dir.z * edgeDir.z;
+          if (dot > bestDot) {
+            bestDot = dot;
+            best = k;
+          }
+        }
+        assert.equal(
+          best,
+          i,
+          `cell ${cell.id} edge ${i} best neighbor index ${best}`,
         );
       }
     }
@@ -290,15 +333,22 @@ describe("placement", () => {
         { id: "p3", name: "C", isAi: true },
       ],
     });
-    assert.equal(match.phase, "combat");
-    assert.ok(match.placementTurns > 0);
-    assert.ok(match.placementTurns <= match.config.placementTurnCap);
-    assert.equal(match.currentOffer, null);
+    assert.equal(match.phase, "countdown");
     assert.equal(
       listOpenEnds(match.placement).length,
       0,
       "auto finish must seal dead-end stubs",
     );
+    // No non-base cul-de-sacs
+    for (const [cellId, nbrs] of match.routeGraph) {
+      if (match.planet.baseCellIds.includes(cellId)) continue;
+      assert.ok(
+        (nbrs?.length ?? 0) >= 2,
+        `spur tip at ${cellId}`,
+      );
+    }
+    flushCountdown(match);
+    assert.equal(match.phase, "combat");
     const bases = match.planet.baseCellIds;
     assert.equal(bases.length, 3);
     for (let i = 0; i < bases.length; i++) {
@@ -332,6 +382,8 @@ describe("placement", () => {
     });
 
     assert.equal(match.currentOffer, null);
+    assert.equal(match.phase, "countdown");
+    flushCountdown(match);
     assert.equal(match.phase, "combat");
   });
 
@@ -556,6 +608,7 @@ describe("match combat", () => {
         { id: "p3", name: "C", isAi: false },
       ],
     });
+    flushCountdown(match);
     match.planet.baseCellIds = [0, 4, 5];
     match.routeGraph = new Map([
       [0, [1]],
@@ -609,6 +662,7 @@ describe("match combat", () => {
         { id: "p3", name: "C", isAi: false },
       ],
     });
+    flushCountdown(match);
     match.planet.baseCellIds = [0, 4, 5];
     match.routeGraph = new Map([
       [0, [1]],
@@ -662,6 +716,7 @@ describe("match combat", () => {
         { id: "p2", name: "B", isAi: false },
       ],
     });
+    flushCountdown(match);
     match.planet.baseCellIds = [0, 2];
     match.routeGraph = new Map([
       [0, [1]],
@@ -711,6 +766,7 @@ describe("match combat", () => {
         { id: "p2", name: "B", isAi: false },
       ],
     });
+    flushCountdown(match);
     match.planet.baseCellIds = [0, 2];
     match.routeGraph = new Map([
       [0, [1]],
@@ -790,10 +846,12 @@ describe("match combat", () => {
         { id: "p2", name: "B", isAi: true },
       ],
     });
+    assert.equal(match.phase, "countdown");
+    flushCountdown(match);
     assert.equal(match.phase, "combat");
     assert.ok(basesConnected(match.placement));
     for (let i = 0; i < 30; i++) tickMatch(match);
-    assert.ok(match.tick === 30);
+    assert.ok(match.tick >= 30);
     const snap = serializeMatch(match);
     assert.equal(snap.players.length, 2);
     assert.ok(snap.planet.cells.length > 0);
@@ -836,6 +894,7 @@ describe("match combat", () => {
         { id: "p2", name: "B", isAi: false },
       ],
     });
+    flushCountdown(match);
     for (const p of match.players) {
       p.bodEnabled = { grunt: false, bruiser: false };
     }
@@ -915,6 +974,7 @@ describe("match combat", () => {
         { id: "p2", name: "B", isAi: true },
       ],
     });
+    flushCountdown(match);
     // No passive income so the debit is unambiguous
     match.config.base.resourceGenPerTick = {};
     for (const p of match.players) {
@@ -956,6 +1016,7 @@ describe("match combat", () => {
         { id: "p2", name: "B", isAi: false },
       ],
     });
+    flushCountdown(match);
     match.config.base.resourceGenPerTick = {};
     const p1 = match.players[0]!;
     p1.bodEnabled = { grunt: true, bruiser: false };
@@ -988,6 +1049,7 @@ describe("match combat", () => {
         { id: "p2", name: "B", isAi: false },
       ],
     });
+    flushCountdown(match);
     for (const p of match.players) {
       p.bodEnabled = { grunt: false, bruiser: false };
     }

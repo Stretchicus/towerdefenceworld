@@ -185,8 +185,13 @@ export function buildPlanet(size: WorldSize, seatCount: number): Planet {
     const centroids = faceIds.map((fi) => faceCentroids[fi]!.c);
     const ordered = orderAround(verts[i]!, centroids);
 
-    // Order neighbors consistently with edge midpoints
-    const orderedNeighbors = orderNeighbors(verts[i]!, neighbors, verts);
+    // neighbors[i] must face edge vertices[i]→vertices[i+1] (no off-by-one)
+    const orderedNeighbors = orderNeighborsToEdges(
+      verts[i]!,
+      neighbors,
+      verts,
+      ordered,
+    );
 
     cells.push({
       id: i,
@@ -212,17 +217,37 @@ function orderAround(center: Vec3, points: Vec3[]): Vec3[] {
   });
 }
 
-function orderNeighbors(
+/**
+ * Assign each neighbor to the polygon edge whose midpoint best faces it,
+ * so connections[i] / neighbors[i] match geometric edge i.
+ */
+function orderNeighborsToEdges(
   center: Vec3,
   neighborIds: number[],
-  verts: Vec3[],
+  allVerts: Vec3[],
+  edgeVerts: Vec3[],
 ): number[] {
-  const ref = orthonormalBasis(center);
-  return [...neighborIds].sort((ia, ib) => {
-    const aa = angleInPlane(center, ref, verts[ia]);
-    const bb = angleInPlane(center, ref, verts[ib]);
-    return aa - bb;
-  });
+  const sides = edgeVerts.length;
+  const remaining = [...neighborIds];
+  const ordered: number[] = [];
+  for (let i = 0; i < sides; i++) {
+    const edgeMid = mid(edgeVerts[i]!, edgeVerts[(i + 1) % sides]!);
+    const edgeDir = sub(edgeMid, center);
+    let bestK = 0;
+    let bestDot = -Infinity;
+    for (let k = 0; k < remaining.length; k++) {
+      const n = allVerts[remaining[k]!]!;
+      const dir = sub(n, center);
+      const dot =
+        dir.x * edgeDir.x + dir.y * edgeDir.y + dir.z * edgeDir.z;
+      if (dot > bestDot) {
+        bestDot = dot;
+        bestK = k;
+      }
+    }
+    ordered.push(remaining.splice(bestK, 1)[0]!);
+  }
+  return ordered;
 }
 
 function orthonormalBasis(n: Vec3): { t: Vec3; b: Vec3 } {

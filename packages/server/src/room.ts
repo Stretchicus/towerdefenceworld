@@ -160,6 +160,8 @@ function startTicks(room: Room): void {
     if (!room.match) return;
     if (room.match.phase === "placement") {
       runAiPlacement(room.match);
+    } else if (room.match.phase === "countdown") {
+      tickMatch(room.match);
     } else if (room.match.phase === "combat") {
       runAiCombat(room.match);
       tickMatch(room.match);

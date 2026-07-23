@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.57 — 2026-07-23
+
+### Fixed
+
+- Manual and auto placement prune spur cul-de-sacs so finished roads have no dead ends
+- Tile hold preview uses correct edge rotation and brighter ribbons; legal hexes are dimmer
+- Build-pad clicks preferred over road no-entry (larger pad tolerance)
+
+### Added
+
+- Full-screen **STARTING IN 3, 2, 1** countdown after the last tile before combat
+
 ## 0.1.56 — 2026-07-23
 
 ### Fixed

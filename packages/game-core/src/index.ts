@@ -37,6 +37,7 @@ export {
   edgeKey,
   listOpenEnds,
   sealOpenEndsFacingEmpty,
+  pruneDeadEndSpurs,
 } from "./tiles/openEnds.js";
 export type { OpenEnd } from "./tiles/openEnds.js";
 export { shapeConnections } from "./tiles/shapes.js";

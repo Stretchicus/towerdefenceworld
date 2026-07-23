@@ -21,7 +21,7 @@ import {
   type PlacementState,
 } from "../tiles/placement.js";
 import { sampleNextTile } from "../tiles/sampleTile.js";
-import { edgeKey, listOpenEnds, sealOpenEndsFacingEmpty } from "../tiles/openEnds.js";
+import { edgeKey, listOpenEnds, pruneDeadEndSpurs, sealOpenEndsFacingEmpty } from "../tiles/openEnds.js";
 import { pathLength } from "./pathfinding.js";
 import {
   pickRandomContinuationToAliveEnemy,
@@ -122,6 +122,8 @@ export interface MatchState {
   buildQueue: { playerId: string; bodTypeId: string; remaining: number }[];
   winnerIds: string[];
   combatEndsAtTick: number | null;
+  /** When phase is countdown, combat begins at this tick (exclusive end). */
+  countdownEndsAtTick: number | null;
   nextEntityId: number;
   routeGraph: Map<number, number[]>;
   edgeBlocks: Map<string, Set<string>>;
@@ -240,6 +242,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
     buildQueue: [],
     winnerIds: [],
     combatEndsAtTick: null,
+    countdownEndsAtTick: null,
     nextEntityId: 1,
     routeGraph: buildRouteGraph(placement),
     edgeBlocks: new Map(players.map((player) => [player.id, new Set<string>()])),
@@ -279,11 +282,20 @@ export function finishPlacement(state: MatchState): void {
   ) {
     autoBridge(state.placement);
   }
-  // Never leave roads into empty land once placement ends (auto or manual).
+  // Never leave roads into empty land or spur cul-de-sacs (auto or manual).
   sealOpenEndsFacingEmpty(state.placement);
+  pruneDeadEndSpurs(state.placement, buildRouteGraph);
   state.currentOffer = null;
   state.routeGraph = buildRouteGraph(state.placement);
+  state.phase = "countdown";
+  state.countdownEndsAtTick =
+    state.tick + Math.max(1, state.config.tickRateHz) * 3;
+  state.combatEndsAtTick = null;
+}
+
+function beginCombat(state: MatchState): void {
   state.phase = "combat";
+  state.countdownEndsAtTick = null;
   const seconds =
     state.settings.timedSeconds ?? state.config.timedMatchSeconds;
   if (state.settings.winRule === "timed") {
@@ -578,13 +590,17 @@ export function intentToggleFriendlyFire(
   return { ok: true };
 }
 
+function inCombatPlay(state: MatchState): boolean {
+  return state.phase === "combat" || state.phase === "countdown";
+}
+
 export function intentToggleNoEntry(
   state: MatchState,
   playerId: string,
   cellA: number,
   cellB: number,
 ): { ok: boolean; error?: string } {
-  if (state.phase !== "combat") return { ok: false, error: "not_combat" };
+  if (!inCombatPlay(state)) return { ok: false, error: "not_combat" };
   if (!state.players.some((player) => player.id === playerId)) {
     return { ok: false, error: "missing_player" };
   }
@@ -609,7 +625,7 @@ export function intentBuildTower(
   cellId: number,
   typeId?: string,
 ): { ok: boolean; error?: string } {
-  if (state.phase !== "combat") return { ok: false, error: "not_combat" };
+  if (!inCombatPlay(state)) return { ok: false, error: "not_combat" };
   const player = state.players.find((p) => p.id === playerId);
   if (!player?.alive) return { ok: false, error: "dead" };
   const placed = state.placement.placed.get(cellId);
@@ -656,7 +672,7 @@ export function intentUpgrade(
   playerId: string,
   target: UpgradeTarget,
 ): { ok: boolean; error?: string } {
-  if (state.phase !== "combat") return { ok: false, error: "not_combat" };
+  if (!inCombatPlay(state)) return { ok: false, error: "not_combat" };
   const player = state.players.find((p) => p.id === playerId);
   if (!player?.alive) return { ok: false, error: "dead" };
 
@@ -792,6 +808,16 @@ function killBod(
 }
 
 export function tickMatch(state: MatchState): void {
+  if (state.phase === "countdown") {
+    state.tick++;
+    if (
+      state.countdownEndsAtTick !== null &&
+      state.tick >= state.countdownEndsAtTick
+    ) {
+      beginCombat(state);
+    }
+    return;
+  }
   if (state.phase !== "combat") return;
   state.tick++;
 
@@ -1069,6 +1095,7 @@ export function serializeMatch(state: MatchState, viewerId?: string) {
     corridorCellIds: [],
     winnerIds: state.winnerIds,
     combatEndsAtTick: state.combatEndsAtTick,
+    countdownEndsAtTick: state.countdownEndsAtTick,
     planet: {
       size: state.planet.size,
       frequency: state.planet.frequency,

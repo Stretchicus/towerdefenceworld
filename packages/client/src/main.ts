@@ -47,6 +47,9 @@ interface MatchState {
   currentSeat: number;
   currentPlayerId: string | null;
   placementMode: string;
+  countdownEndsAtTick?: number | null;
+  combatEndsAtTick?: number | null;
+  bodMoveEveryTicks?: number;
   currentTile: {
     id?: string;
     routeKind?: string;
@@ -98,7 +101,6 @@ interface MatchState {
     pickups?: string[];
   }[];
   corridorCellIds?: number[];
-  bodMoveEveryTicks?: number;
   myEdgeBlocks?: string[];
   costs?: {
     baseUpgradeBase: Record<string, number>;
@@ -111,7 +113,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.56";
+const CLIENT_BUILD = "v0.1.57";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -136,12 +138,20 @@ app.innerHTML = `
   </header>
   <div id="viewport">
     <div class="hud" id="hud"></div>
+    <div id="countdown-overlay" class="countdown-overlay" hidden>
+      <p class="countdown-label">STARTING IN</p>
+      <p class="countdown-num" id="countdown-num">3</p>
+    </div>
   </div>
 `;
 
 const viewport = document.getElementById("viewport")!;
 const hud = document.getElementById("hud")!;
 const statusEl = document.getElementById("status")!;
+const countdownOverlay = document.getElementById(
+  "countdown-overlay",
+) as HTMLElement;
+const countdownNum = document.getElementById("countdown-num") as HTMLElement;
 const leaveBtn = document.getElementById("btn-leave") as HTMLButtonElement;
 const healthBar = document.getElementById("health-bar") as HTMLElement;
 const healthBarTrack = document.getElementById(
@@ -151,7 +161,11 @@ const healthBarTrack = document.getElementById(
 const socket = new GameSocket();
 const planet = new PlanetView(viewport);
 const buildOverlay = new BuildOverlay(viewport, () => {
-  if (selectedBuildCell === null || !lastMatch || lastMatch.phase !== "combat") {
+  if (
+    selectedBuildCell === null ||
+    !lastMatch ||
+    (lastMatch.phase !== "combat" && lastMatch.phase !== "countdown")
+  ) {
     return;
   }
   const self = me();
@@ -229,6 +243,22 @@ function resetToMenu(): void {
 }
 
 leaveBtn.addEventListener("click", () => leaveRoom());
+
+function isCombatPlay(m: MatchState | null): boolean {
+  return m?.phase === "combat" || m?.phase === "countdown";
+}
+
+function updateCountdownOverlay(m: MatchState | null): void {
+  if (!m || m.phase !== "countdown" || m.countdownEndsAtTick == null) {
+    countdownOverlay.hidden = true;
+    return;
+  }
+  const hz = 10;
+  const remainTicks = Math.max(0, m.countdownEndsAtTick - m.tick);
+  const sec = Math.max(1, Math.ceil(remainTicks / hz));
+  countdownNum.textContent = String(sec);
+  countdownOverlay.hidden = false;
+}
 
 function updateHealthBar(m: MatchState | null): void {
   if (!m || m.phase === "lobby") {
@@ -577,6 +607,7 @@ function rotatePlacement(dir: 1 | -1): void {
 function renderLobby(): void {
   planet.setSpin(true);
   updateHealthBar(null);
+  updateCountdownOverlay(null);
   const s = lastLobby;
   updateLeaveBtn();
 
@@ -1166,7 +1197,9 @@ function renderMatch(): void {
           : `<p class="turn-banner">Waiting for ${turnPlayer?.name ?? "…"}</p>`
         : m.phase === "placement"
           ? `<p class="turn-banner">Auto-placing routes…</p>`
-          : "";
+          : m.phase === "countdown"
+            ? `<p class="turn-banner yours">Get ready…</p>`
+            : "";
 
     hud.innerHTML = `
     <div class="panel side-left">
@@ -1245,7 +1278,7 @@ function renderMatch(): void {
     interactionMode:
       m.phase === "placement"
         ? "placement"
-        : m.phase === "combat"
+        : isCombatPlay(m)
           ? "combat"
           : "other",
     phase: m.phase,
@@ -1276,11 +1309,12 @@ function renderMatch(): void {
       tile?.connections?.length
     ),
   );
+  updateCountdownOverlay(m);
 }
 
 planet.onCellClick = (cellId) => {
   if (!lastMatch) return;
-  if (lastMatch.phase === "combat") {
+  if (isCombatPlay(lastMatch)) {
     const placed = lastMatch.placed.find((p) => p.cellId === cellId);
     const hasTower = lastMatch.towers.some((t) => t.cellId === cellId);
     if (placed?.tile.hasTowerPoint && !hasTower) {
@@ -1304,7 +1338,7 @@ planet.onTileDrop = (cellId, rotation) => {
 };
 
 planet.onRoadEdgeClick = (cellA, cellB) => {
-  if (!lastMatch || lastMatch.phase !== "combat") return;
+  if (!isCombatPlay(lastMatch)) return;
   socket.send({ type: "toggleNoEntry", cellA, cellB });
 };
 

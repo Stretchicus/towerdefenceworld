@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { rotateConnections } from "@tdw/game-core";
 import { EndGameCastleFx, type CastleFxSpec } from "./endGameFx.js";
 import { createMineVisual, createPickupOrb } from "./mineVisuals.js";
 import { createTowerVisual, tickTowerVisual } from "./towerVisuals.js";
@@ -55,7 +56,9 @@ export interface PlanetViewData {
 const TEAM_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const BOD_RADIUS = 0.055;
 const Y_UP = new THREE.Vector3(0, 1, 0);
-const MARKER_ROAD_PICK_TOLERANCE = 0.05;
+const MARKER_ROAD_PICK_TOLERANCE = 0.28;
+/** Road must beat a cell/pad hit by this much to count as a no-entry click. */
+const ROAD_OVER_CELL_MARGIN = 0.12;
 
 interface CellPickHit {
   cellId: number;
@@ -215,6 +218,8 @@ export class PlanetView {
   private legalCellIds = new Set<number>();
   private placementConnections: boolean[] = [];
   private placementRotation = 0;
+  /** Cells with an empty build pad — prefer these over road no-entry picks. */
+  private emptyPadCellIds = new Set<number>();
   private markersKey = "";
   private routesKey = "";
   private cellCenters = new Map<number, THREE.Vector3>();
@@ -540,41 +545,76 @@ export class PlanetView {
     if (!cell || cell.vertices.length < 3) return;
     const sides = cell.vertices.length;
     const rotation = ((this.placementRotation % sides) + sides) % sides;
-    const center = new THREE.Vector3(
-      cell.center.x,
-      cell.center.y,
-      cell.center.z,
-    ).multiplyScalar(1.012);
-    const positions: number[] = [];
-    for (let i = 0; i < sides; i++) {
-      const source = (i - rotation + sides) % sides;
-      if (!this.placementConnections[source]) continue;
-      const a = cell.vertices[i]!;
-      const b = cell.vertices[(i + 1) % sides]!;
-      const edge = new THREE.Vector3(
-        (a.x + b.x) * 0.5,
-        (a.y + b.y) * 0.5,
-        (a.z + b.z) * 0.5,
-      ).multiplyScalar(1.012);
-      positions.push(center.x, center.y, center.z, edge.x, edge.y, edge.z);
+    const rotated = rotateConnections(
+      this.placementConnections,
+      sides,
+      rotation,
+    );
+    const lift = 0.004;
+    const halfW = 0.018;
+    const face = new THREE.Vector3();
+    for (const v of cell.vertices) {
+      face.x += v.x;
+      face.y += v.y;
+      face.z += v.z;
     }
-    if (positions.length === 0) return;
-    const geometry = new THREE.BufferGeometry();
-    geometry.setAttribute(
-      "position",
-      new THREE.Float32BufferAttribute(positions, 3),
-    );
-    const ghost = new THREE.LineSegments(
-      geometry,
-      new THREE.LineBasicMaterial({
-        color: 0xffe566,
-        transparent: true,
-        opacity: 0.72,
-        depthTest: false,
-      }),
-    );
-    ghost.renderOrder = 20;
-    this.tileDragGhost.add(ghost);
+    face.multiplyScalar(PlanetView.FACE_SCALE / sides);
+    const outward = face.clone().normalize();
+    const ca = face.clone().addScaledVector(outward, lift);
+
+    const mat = new THREE.MeshBasicMaterial({
+      color: 0xffe566,
+      transparent: true,
+      opacity: 1,
+      depthTest: false,
+      side: THREE.DoubleSide,
+    });
+
+    for (let i = 0; i < sides; i++) {
+      if (!(rotated[i] ?? false)) continue;
+      // Edge i is vertices[i]→[i+1], matching neighbors[i] / connections[i]
+      const va = cell.vertices[i]!;
+      const vb = cell.vertices[(i + 1) % sides]!;
+      const mid = new THREE.Vector3(
+        (va.x + vb.x) * 0.5,
+        (va.y + vb.y) * 0.5,
+        (va.z + vb.z) * 0.5,
+      )
+        .normalize()
+        .multiplyScalar(ca.length());
+      const p0 = ca;
+      const p1 = mid;
+      const along = p1.clone().sub(p0);
+      if (along.lengthSq() < 1e-14) continue;
+      const radial = p0.clone().add(p1).normalize();
+      let side = new THREE.Vector3().crossVectors(along, radial);
+      if (side.lengthSq() < 1e-14) {
+        side = new THREE.Vector3().crossVectors(along, new THREE.Vector3(0, 1, 0));
+      }
+      side.normalize().multiplyScalar(halfW);
+      const i0 = p0.clone().add(side);
+      const i1 = p0.clone().sub(side);
+      const o0 = p1.clone().add(side);
+      const o1 = p1.clone().sub(side);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute(
+        "position",
+        new THREE.Float32BufferAttribute(
+          [
+            i0.x, i0.y, i0.z,
+            i1.x, i1.y, i1.z,
+            o0.x, o0.y, o0.z,
+            i1.x, i1.y, i1.z,
+            o1.x, o1.y, o1.z,
+            o0.x, o0.y, o0.z,
+          ],
+          3,
+        ),
+      );
+      const ribbon = new THREE.Mesh(geo, mat);
+      ribbon.renderOrder = 30;
+      this.tileDragGhost.add(ribbon);
+    }
   }
 
   /** Rotate the globe so drag follows the finger (trackball / free spin). */
@@ -709,12 +749,16 @@ export class PlanetView {
     const cellHit = this.rayCellHit(e);
     if (this.interactionMode === "combat") {
       const edge = this.rayRoadEdge(e);
+      const onEmptyPad =
+        cellHit !== null && this.emptyPadCellIds.has(cellHit.cellId);
+      // Prefer build pads / markers; roads only when clearly the target.
       const cellWins =
-        edge !== null &&
         cellHit !== null &&
-        (cellHit.distance <= edge.distance ||
-          (cellHit.isMarker &&
-            cellHit.distance <= edge.distance + MARKER_ROAD_PICK_TOLERANCE));
+        (edge === null ||
+          cellHit.isMarker ||
+          onEmptyPad ||
+          cellHit.distance <= edge.distance + MARKER_ROAD_PICK_TOLERANCE ||
+          !(edge.distance + ROAD_OVER_CELL_MARGIN < cellHit.distance));
       if (edge && !cellWins) {
         this.onRoadEdgeClick?.(edge.cellA, edge.cellB);
         return;
@@ -821,9 +865,10 @@ export class PlanetView {
         emissiveIntensity = 0.22;
       }
       if (legalSet.has(cell.id)) {
-        color = 0x4dffb0;
-        emissive = 0x00ff88;
-        emissiveIntensity = 0.85;
+        // Dim legal ends so the gold tile ghost stays readable
+        color = 0x1a3d34;
+        emissive = 0x0e2a22;
+        emissiveIntensity = 0.18;
       }
       if (
         this.interactionMode === "placement" &&
@@ -932,38 +977,6 @@ export class PlanetView {
       return raw.clone().multiplyScalar(1.002).addScaledVector(n, lift);
     };
 
-    /** Edge of `cell` whose midpoint aims most toward `toward` (neighbor centre) */
-    const edgeToward = (
-      cell: CellView,
-      toward: THREE.Vector3,
-    ): { a: THREE.Vector3; b: THREE.Vector3; mid: THREE.Vector3 } | null => {
-      if (cell.vertices.length < 3) return null;
-      const c = new THREE.Vector3(cell.center.x, cell.center.y, cell.center.z);
-      const dir = toward.clone().sub(c);
-      let bestI = 0;
-      let bestDot = -Infinity;
-      for (let i = 0; i < cell.vertices.length; i++) {
-        const va = cell.vertices[i]!;
-        const vb = cell.vertices[(i + 1) % cell.vertices.length]!;
-        const mid = new THREE.Vector3(
-          (va.x + vb.x) * 0.5,
-          (va.y + vb.y) * 0.5,
-          (va.z + vb.z) * 0.5,
-        );
-        const d = mid.clone().sub(c);
-        const dot = d.dot(dir);
-        if (dot > bestDot) {
-          bestDot = dot;
-          bestI = i;
-        }
-      }
-      const va = cell.vertices[bestI]!;
-      const vb = cell.vertices[(bestI + 1) % cell.vertices.length]!;
-      const a = faceVert(new THREE.Vector3(va.x, va.y, va.z));
-      const b = faceVert(new THREE.Vector3(vb.x, vb.y, vb.z));
-      return { a, b, mid: a.clone().add(b).multiplyScalar(0.5) };
-    };
-
     const addRibbon = (
       points: THREE.Vector3[],
       roadEdge: { cellA: number; cellB: number },
@@ -1026,20 +1039,16 @@ export class PlanetView {
           cell.center.y,
           cell.center.z,
         );
-        const cB = new THREE.Vector3(
-          nCell.center.x,
-          nCell.center.y,
-          nCell.center.z,
-        );
         const ca = faceCenter(cA);
-        const edge = edgeToward(cell, cB);
-        const mid =
-          edge?.mid ??
-          ca
-            .clone()
-            .lerp(faceCenter(cB), 0.5)
-            .normalize()
-            .multiplyScalar(ca.length());
+        const va = cell.vertices[i]!;
+        const vb = cell.vertices[(i + 1) % cell.vertices.length]!;
+        const mid = faceVert(
+          new THREE.Vector3(
+            (va.x + vb.x) * 0.5,
+            (va.y + vb.y) * 0.5,
+            (va.z + vb.z) * 0.5,
+          ),
+        );
 
         if (!nPlaced) {
           // Open stub: show road from face centre to the join edge
@@ -1062,6 +1071,11 @@ export class PlanetView {
         if (drawn.has(key)) continue;
         drawn.add(key);
 
+        const cB = new THREE.Vector3(
+          nCell.center.x,
+          nCell.center.y,
+          nCell.center.z,
+        );
         const cb = faceCenter(cB);
         addRibbon([ca, mid, cb], {
           cellA: Math.min(placed.cellId, nid),
@@ -1123,6 +1137,11 @@ export class PlanetView {
       ownerColor.set(p.id, TEAM_COLORS[i % TEAM_COLORS.length]!);
     });
     const towerCells = new Set(data.towers.map((t) => t.cellId));
+    this.emptyPadCellIds = new Set(
+      data.placed
+        .filter((p) => p.tile.hasTowerPoint && !towerCells.has(p.cellId))
+        .map((p) => p.cellId),
+    );
     const padsAffordable = data.padsAffordable !== false;
     const padEmissive = padsAffordable ? 0.75 : 0.2;
     const padRingEmissive = padsAffordable ? 1.15 : 0.25;
@@ -1195,6 +1214,20 @@ export class PlanetView {
       plinth.quaternion.copy(quat);
       plinth.userData.cellId = placed.cellId;
       this.markers.add(plinth);
+
+      // Large invisible hit volume so pads beat road ribbons
+      const hit = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.11, 0.11, 0.04, 16),
+        new THREE.MeshBasicMaterial({
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+        }),
+      );
+      hit.position.copy(pos).addScaledVector(outward, 0.012);
+      hit.quaternion.copy(quat);
+      hit.userData.cellId = placed.cellId;
+      this.markers.add(hit);
 
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.052, 0.01, 10, 28),

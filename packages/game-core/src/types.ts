@@ -5,7 +5,7 @@ export type WorldSize = "small" | "medium" | "large";
 export type MatchMode = "ffa" | "teams";
 export type WinRule = "last_base" | "timed";
 export type PlacementMode = "manual" | "auto";
-export type MatchPhase = "lobby" | "placement" | "combat" | "ended";
+export type MatchPhase = "lobby" | "placement" | "countdown" | "combat" | "ended";
 
 export interface TowerDef {
   id: string;
