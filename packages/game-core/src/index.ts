@@ -52,6 +52,11 @@ export {
 export type { CorridorNetwork } from "./tiles/corridors.js";
 export { findPath, pathLength } from "./sim/pathfinding.js";
 export {
+  reachesAliveEnemy,
+  pickRandomPathToAliveEnemy,
+} from "./sim/routing.js";
+export type { RoutingPlayer, RoutingState } from "./sim/routing.js";
+export {
   createMatch,
   assignTeams,
   finishPlacement,

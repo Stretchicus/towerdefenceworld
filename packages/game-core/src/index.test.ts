@@ -22,6 +22,8 @@ import {
   normalizeTowerForResources,
   parseLoadoutFile,
   pay,
+  pickRandomPathToAliveEnemy,
+  pickSpawnTarget,
   placeTile,
   sampleNextTile,
   scaleCost,
@@ -364,6 +366,155 @@ describe("placement", () => {
 });
 
 describe("match combat", () => {
+  it("chooses seeded random branches that reach an alive enemy castle", () => {
+    const graph = new Map<number, number[]>([
+      [0, [1]],
+      [1, [0, 2, 3]],
+      [2, [1, 4]],
+      [3, [1, 5]],
+      [4, [2]],
+      [5, [3]],
+    ]);
+    const state = {
+      players: [
+        { id: "p1", teamId: "a", alive: true },
+        { id: "p2", teamId: "b", alive: true },
+        { id: "p3", teamId: "c", alive: true },
+      ],
+      planet: { baseCellIds: [0, 4, 5] },
+    };
+
+    assert.deepEqual(
+      pickRandomPathToAliveEnemy(
+        graph,
+        0,
+        state,
+        state.players[0]!,
+        createRng(7),
+      ),
+      [0, 1, 2, 4],
+    );
+    assert.deepEqual(
+      pickRandomPathToAliveEnemy(
+        graph,
+        0,
+        state,
+        state.players[0]!,
+        createRng(1),
+      ),
+      [0, 1, 3, 5],
+    );
+  });
+
+  it("does not route to dead enemy castles", () => {
+    const graph = new Map<number, number[]>([
+      [0, [1]],
+      [1, [0, 2, 3]],
+      [2, [1, 4]],
+      [3, [1, 5]],
+      [4, [2]],
+      [5, [3]],
+    ]);
+    const state = {
+      players: [
+        { id: "p1", teamId: "a", alive: true },
+        { id: "p2", teamId: "b", alive: false },
+        { id: "p3", teamId: "c", alive: true },
+      ],
+      planet: { baseCellIds: [0, 4, 5] },
+    };
+
+    assert.deepEqual(
+      pickRandomPathToAliveEnemy(
+        graph,
+        0,
+        state,
+        state.players[0]!,
+        createRng(7),
+      ),
+      [0, 1, 3, 5],
+    );
+  });
+
+  it("re-rolls the forward branch when a bod moves through a junction", () => {
+    const match = createMatch({
+      id: "junction-reroute",
+      seed: 1,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 2,
+        seatCount: 3,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+        { id: "p3", name: "C", isAi: false },
+      ],
+    });
+    match.planet.baseCellIds = [0, 4, 5];
+    match.routeGraph = new Map([
+      [0, [1]],
+      [1, [0, 2, 3]],
+      [2, [1, 4]],
+      [3, [1, 5]],
+      [4, [2]],
+      [5, [3]],
+    ]);
+    match.placementRng = createRng(1);
+    for (const player of match.players) {
+      player.bodEnabled = { grunt: false, bruiser: false };
+    }
+    match.bods.push({
+      id: "bod-junction",
+      ownerId: "p1",
+      typeId: "grunt",
+      hp: 40,
+      maxHp: 40,
+      cellId: 1,
+      path: [0, 1, 2, 4],
+      pathIndex: 1,
+      moveCooldown: 0,
+      held: {},
+      pickups: [],
+      targetPlayerId: "p2",
+      buildRemaining: 0,
+    });
+
+    tickMatch(match);
+
+    assert.equal(match.bods[0]!.cellId, 3);
+    assert.equal(match.bods[0]!.targetPlayerId, "p3");
+  });
+
+  it("picks alive spawn targets even when legacy target flags are disabled", () => {
+    const match = createMatch({
+      id: "alive-target",
+      seed: 3,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 2,
+        seatCount: 3,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+        { id: "p3", name: "C", isAi: false },
+      ],
+    });
+    const owner = match.players[0]!;
+    owner.targetEnabled.p2 = false;
+    owner.targetEnabled.p3 = false;
+    match.players[1]!.alive = false;
+
+    assert.equal(pickSpawnTarget(match, owner), "p3");
+  });
+
   it("runs auto placement into combat and ticks", () => {
     const match = createMatch({
       id: "test",

@@ -7,7 +7,6 @@ import {
   intentPlaceTile,
   intentToggleBod,
   intentToggleFriendlyFire,
-  intentToggleTarget,
   intentUpgrade,
   runAiCombat,
   runAiPlacement,
@@ -483,9 +482,7 @@ export function handleMessage(
         break;
       }
       case "toggleTarget": {
-        if (!room.match) break;
-        intentToggleTarget(room.match, playerId, raw.targetId, raw.enabled);
-        broadcastState(room);
+        // Deprecated client message retained as a compatibility no-op.
         break;
       }
       case "toggleFriendlyFire": {

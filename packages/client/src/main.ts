@@ -70,7 +70,6 @@ interface MatchState {
     bank: Record<string, number>;
     baseHp: number;
     baseLevel?: number;
-    targetEnabled: Record<string, boolean>;
     bodEnabled: Record<string, boolean>;
     bodLevels?: Record<string, number>;
     alive: boolean;
@@ -795,13 +794,6 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
       planet.beginTileDrag(e);
     });
-  hud.querySelectorAll("[data-target]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const id = (btn as HTMLElement).dataset.target!;
-      const on = self?.targetEnabled[id];
-      socket.send({ type: "toggleTarget", targetId: id, enabled: !on });
-    });
-  });
   hud.querySelectorAll("[data-bod]").forEach((btn) => {
     btn.addEventListener("click", (ev) => {
       ev.stopPropagation();
@@ -1032,9 +1024,6 @@ function renderMatch(): void {
     pads.join(","),
     myTowers.map((t) => `${t.id}:${t.level ?? 0}:${t.typeId ?? ""}`).join(","),
     self?.baseLevel ?? 0,
-    Object.entries(self?.targetEnabled ?? {})
-      .map(([k, v]) => `${k}:${v}`)
-      .join(","),
     Object.entries(self?.bodEnabled ?? {})
       .map(([k, v]) => `${k}:${v}`)
       .join(","),
@@ -1052,15 +1041,6 @@ function renderMatch(): void {
     patchMatchLive(m, self);
   } else {
     hudShellKey = shellKey;
-
-    const targets = self
-      ? Object.entries(self.targetEnabled)
-          .map(
-            ([id, on]) =>
-              `<button class="chip ${on ? "on" : "off"}" data-target="${id}">${m.players.find((p) => p.id === id)?.name ?? id}</button>`,
-          )
-          .join("")
-      : "";
 
     const selfColor =
       PLAYER_COLORS[
@@ -1222,8 +1202,6 @@ function renderMatch(): void {
         ${m.phase === "combat" ? `· Free pads: ${pads.length}` : ""}
       </p>
       <p class="error" id="error-live">${lastError}</p>
-      <h2>TARGETS</h2>
-      <div class="row">${targets || "—"}</div>
       <h2>BODS</h2>
       <div class="bod-stack">${bods || "—"}</div>
     </div>

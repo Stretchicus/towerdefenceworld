@@ -22,6 +22,10 @@ import {
 } from "../tiles/placement.js";
 import { sampleNextTile } from "../tiles/sampleTile.js";
 import { findPath, pathLength } from "./pathfinding.js";
+import {
+  pickRandomContinuationToAliveEnemy,
+  pickRandomPathToAliveEnemy,
+} from "./routing.js";
 import type {
   GameConfig,
   LobbySettings,
@@ -47,7 +51,7 @@ export interface PlayerState {
   bank: ResourceMap;
   baseHp: number;
   baseLevel: number;
-  /** Other player ids this player wants to attack (all true at start) */
+  /** @deprecated Retained for wire compatibility; routing ignores target flags. */
   targetEnabled: Record<string, boolean>;
   /** Bod type id → enabled for auto-build */
   bodEnabled: Record<string, boolean>;
@@ -412,17 +416,14 @@ export function pickSpawnTarget(state: MatchState, owner: PlayerState): string {
   );
   if (enemies.length === 0) return owner.id;
 
-  const enabled = enemies.filter((e) => owner.targetEnabled[e.id] !== false);
-  const pool = enabled.length > 0 ? enabled : enemies;
-
-  let best = pool[0]!;
+  let best = enemies[0]!;
   let bestCount = owner.assignCounts[best.id] ?? 0;
   let bestPath = pathLength(
     state.routeGraph,
     baseCell(state, owner.id),
     baseCell(state, best.id),
   );
-  for (const e of pool) {
+  for (const e of enemies) {
     const c = owner.assignCounts[e.id] ?? 0;
     const plen = pathLength(
       state.routeGraph,
@@ -442,6 +443,52 @@ export function pickSpawnTarget(state: MatchState, owner: PlayerState): string {
 function baseCell(state: MatchState, playerId: string): number {
   const idx = state.players.findIndex((p) => p.id === playerId);
   return state.planet.baseCellIds[idx] ?? state.planet.baseCellIds[0]!;
+}
+
+function playerAtBaseCell(state: MatchState, cellId: number): PlayerState | null {
+  const index = state.planet.baseCellIds.indexOf(cellId);
+  return index >= 0 ? (state.players[index] ?? null) : null;
+}
+
+function refreshBodRoute(state: MatchState, bod: BodInstance): void {
+  const owner = state.players.find((player) => player.id === bod.ownerId);
+  if (!owner) return;
+  const previous =
+    bod.pathIndex > 0 ? (bod.path[bod.pathIndex - 1] ?? null) : null;
+  let continuation =
+    previous === null
+      ? pickRandomPathToAliveEnemy(
+          state.routeGraph,
+          bod.cellId,
+          state,
+          owner,
+          state.placementRng,
+        )
+      : pickRandomContinuationToAliveEnemy(
+          state.routeGraph,
+          bod.cellId,
+          previous,
+          state,
+          owner,
+          state.placementRng,
+        );
+  if (!continuation && previous !== null) {
+    continuation = pickRandomPathToAliveEnemy(
+      state.routeGraph,
+      bod.cellId,
+      state,
+      owner,
+      state.placementRng,
+    );
+  }
+  if (!continuation) return;
+
+  bod.path = [
+    ...bod.path.slice(0, bod.pathIndex + 1),
+    ...continuation.slice(1),
+  ];
+  const target = playerAtBaseCell(state, continuation[continuation.length - 1]!);
+  if (target) bod.targetPlayerId = target.id;
 }
 
 export function intentToggleTarget(
@@ -712,10 +759,22 @@ export function tickMatch(state: MatchState): void {
     const st = bodStats(state, owner, q.bodTypeId);
     if (!canAfford(owner.bank, st.cost)) continue;
     pay(owner.bank, st.cost);
-    const targetId = pickSpawnTarget(state, owner);
     const start = baseCell(state, owner.id);
-    const goal = baseCell(state, targetId);
-    const path = findPath(state.routeGraph, start, goal) ?? [start];
+    let path = pickRandomPathToAliveEnemy(
+      state.routeGraph,
+      start,
+      state,
+      owner,
+      state.placementRng,
+    );
+    let targetId = path
+      ? (playerAtBaseCell(state, path[path.length - 1]!)?.id ?? owner.id)
+      : pickSpawnTarget(state, owner);
+    if (!path) {
+      path = findPath(state.routeGraph, start, baseCell(state, targetId)) ?? [
+        start,
+      ];
+    }
     state.bods.push({
       id: `bod-${state.nextEntityId++}`,
       ownerId: owner.id,
@@ -772,6 +831,26 @@ export function tickMatch(state: MatchState): void {
 
   // Move bods along edges over bodMoveEveryTicks (travel during cooldown, not wait-then-jump)
   for (const bod of [...state.bods]) {
+    const currentTarget = state.players.find(
+      (player) => player.id === bod.targetPlayerId,
+    );
+    if (
+      bod.pathIndex >= bod.path.length - 1 &&
+      (!currentTarget?.alive ||
+        currentTarget.teamId ===
+          state.players.find((player) => player.id === bod.ownerId)?.teamId)
+    ) {
+      if (bod.moveCooldown > 0) {
+        bod.moveCooldown--;
+        continue;
+      }
+      refreshBodRoute(state, bod);
+      if (bod.pathIndex >= bod.path.length - 1) {
+        killBod(state, bod, null);
+        continue;
+      }
+    }
+
     if (bod.pathIndex >= bod.path.length - 1) {
       // Linger on final cell, then strike once
       if (bod.moveCooldown > 0) {
@@ -797,6 +876,7 @@ export function tickMatch(state: MatchState): void {
     bod.moveCooldown--;
     if (bod.moveCooldown > 0) continue;
 
+    refreshBodRoute(state, bod);
     bod.pathIndex++;
     bod.cellId = bod.path[bod.pathIndex]!;
     collectMineIfPresent(state, bod);
