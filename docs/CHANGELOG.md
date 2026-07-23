@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.52 — 2026-07-23
+
+### Fixed
+
+- Bod build cost is charged when the bod spawns (not when the build queue starts); no spawn if the owner cannot afford it (humans and AI)
+
 ## 0.1.51 — 2026-07-23
 
 ### Fixed

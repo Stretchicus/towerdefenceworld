@@ -724,7 +724,7 @@ export function tickMatch(state: MatchState): void {
     void scale;
   }
 
-  // Auto-build enqueue
+  // Auto-build enqueue (one job per player). Charge happens when the bod spawns.
   for (const p of state.players) {
     if (!p.alive) continue;
     if (state.buildQueue.some((q) => q.playerId === p.id)) continue;
@@ -732,7 +732,6 @@ export function tickMatch(state: MatchState): void {
       if (!on) continue;
       const st = bodStats(state, p, typeId);
       if (!canAfford(p.bank, st.cost)) continue;
-      pay(p.bank, st.cost);
       state.buildQueue.push({
         playerId: p.id,
         bodTypeId: typeId,
@@ -742,7 +741,7 @@ export function tickMatch(state: MatchState): void {
     }
   }
 
-  // Progress build queue
+  // Progress build queue — spawn only if the owner can still afford the bod
   for (const q of [...state.buildQueue]) {
     q.remaining--;
     if (q.remaining > 0) continue;
@@ -750,6 +749,8 @@ export function tickMatch(state: MatchState): void {
     const owner = state.players.find((p) => p.id === q.playerId);
     if (!owner?.alive) continue;
     const st = bodStats(state, owner, q.bodTypeId);
+    if (!canAfford(owner.bank, st.cost)) continue;
+    pay(owner.bank, st.cost);
     const targetId = pickSpawnTarget(state, owner);
     const start = baseCell(state, owner.id);
     const goal = baseCell(state, targetId);

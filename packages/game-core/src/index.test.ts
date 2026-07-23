@@ -251,6 +251,79 @@ describe("match combat", () => {
     assert.equal(match.towers[0]!.cooldown, 1);
   });
 
+  it("pays bod build cost from the owner bank when the bod is created", () => {
+    const match = createMatch({
+      id: "bod-cost",
+      seed: 1,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 3,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: true },
+        { id: "p2", name: "B", isAi: true },
+      ],
+    });
+    // No passive income so the debit is unambiguous
+    match.config.base.resourceGenPerTick = {};
+    for (const p of match.players) {
+      p.bodEnabled = { grunt: true, bruiser: false };
+      p.bank = { stone: 20, water: 20, power: 20 };
+    }
+    const cost = {
+      stone: match.config.bods.grunt!.resourcesToBuild.stone ?? 0,
+      water: match.config.bods.grunt!.resourcesToBuild.water ?? 0,
+    };
+    const p1 = match.players[0]!;
+    const beforeStone = p1.bank.stone!;
+    const beforeWater = p1.bank.water!;
+    const buildTicks = match.config.bods.grunt!.buildTimeTicks;
+    for (let i = 0; i < buildTicks - 1; i++) tickMatch(match);
+    assert.equal(match.bods.filter((b) => b.ownerId === "p1").length, 0);
+    assert.equal(p1.bank.stone, beforeStone);
+    assert.equal(p1.bank.water, beforeWater);
+    tickMatch(match);
+    assert.equal(match.bods.filter((b) => b.ownerId === "p1").length, 1);
+    assert.equal(p1.bank.stone, beforeStone - cost.stone);
+    assert.equal(p1.bank.water, beforeWater - cost.water);
+  });
+
+  it("does not create a bod when the owner cannot afford it", () => {
+    const match = createMatch({
+      id: "bod-broke",
+      seed: 1,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 3,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+      ],
+    });
+    match.config.base.resourceGenPerTick = {};
+    const p1 = match.players[0]!;
+    p1.bodEnabled = { grunt: true, bruiser: false };
+    p1.bank = { stone: 20, water: 20, power: 20 };
+    // Start a build while funded
+    tickMatch(match);
+    assert.ok(match.buildQueue.some((q) => q.playerId === "p1"));
+    // Drain funds before the bod would spawn
+    p1.bank = { stone: 0, water: 0, power: 0 };
+    const buildTicks = match.config.bods.grunt!.buildTimeTicks;
+    for (let i = 0; i < buildTicks + 5; i++) tickMatch(match);
+    assert.equal(match.bods.filter((b) => b.ownerId === "p1").length, 0);
+    assert.equal(p1.bank.stone, 0);
+  });
+
   it("death loot credits killer bank", () => {
     const match = createMatch({
       id: "loot",
