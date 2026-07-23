@@ -298,11 +298,12 @@ header.top {
   filter: brightness(1.12);
 }
 
+/* Below .hud so the build modal always covers it */
 .world-build-bar {
   position: absolute;
   left: 0;
   top: 0;
-  z-index: 2;
+  z-index: 0;
   pointer-events: auto;
 }
 
@@ -494,7 +495,7 @@ header.top .meta {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  z-index: 1;
+  z-index: 2;
 }
 
 .hud > * {

@@ -109,7 +109,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.49";
+const CLIENT_BUILD = "v0.1.50";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -159,6 +159,7 @@ const buildOverlay = new BuildOverlay(viewport, () => {
   );
   if (!anyAfford) return;
   showBuildPopup = true;
+  buildOverlay.hide();
   lastError = "";
   paint();
 });
@@ -271,6 +272,7 @@ function selectBuildPad(cellId: number): void {
   if (selectedBuildCell === cellId) {
     selectedBuildCell = null;
     showBuildPopup = false;
+    buildOverlay.hide();
   } else {
     selectedBuildCell = cellId;
     showBuildPopup = false;
@@ -283,6 +285,7 @@ function selectBuildPad(cellId: number): void {
 function clearBuildSelection(): void {
   selectedBuildCell = null;
   showBuildPopup = false;
+  buildOverlay.hide();
   paint();
 }
 
@@ -295,6 +298,7 @@ function openBuildPopup(): void {
   if (selectedBuildCell === null || !lastMatch) return;
   if (!anyTowerAffordable(lastMatch)) return;
   showBuildPopup = true;
+  buildOverlay.hide();
   paint();
 }
 
@@ -765,6 +769,7 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
       });
       showBuildPopup = false;
       selectedBuildCell = null;
+      buildOverlay.hide();
       paint();
     });
   });
@@ -876,6 +881,7 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
           });
           showBuildPopup = false;
           selectedBuildCell = null;
+          buildOverlay.hide();
           paint();
         });
       });
@@ -956,6 +962,7 @@ function renderMatch(): void {
   if (selectedBuildCell !== null && !pads.includes(selectedBuildCell)) {
     selectedBuildCell = null;
     showBuildPopup = false;
+    buildOverlay.hide();
   }
   const myTowers = m.towers.filter((t) => t.ownerId === playerId);
 
@@ -1382,17 +1389,19 @@ function loop(): void {
 
 function syncWorldBuildOverlay(): void {
   const m = lastMatch;
+  const cellId = selectedBuildCell;
   if (
     !m ||
     m.phase !== "combat" ||
-    selectedBuildCell === null ||
+    cellId === null ||
     showBuildPopup ||
-    !anyTowerAffordable(m)
+    !anyTowerAffordable(m) ||
+    !freeTowerPads(m).includes(cellId)
   ) {
     buildOverlay.hide();
     return;
   }
-  const proj = planet.projectCellToViewport(selectedBuildCell, 0.055);
+  const proj = planet.projectCellToViewport(cellId, 0.055);
   if (!proj || !proj.visible) {
     buildOverlay.hide();
     return;

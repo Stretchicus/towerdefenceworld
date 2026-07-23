@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.50 — 2026-07-23
+
+### Fixed
+
+- World BUILD bar hides after a tower is built and stays under the build modal
+
 ## 0.1.49 — 2026-07-23
 
 ### Changed
