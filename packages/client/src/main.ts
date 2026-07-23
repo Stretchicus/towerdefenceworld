@@ -109,7 +109,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.50";
+const CLIENT_BUILD = "v0.1.51";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -300,6 +300,40 @@ function openBuildPopup(): void {
   showBuildPopup = true;
   buildOverlay.hide();
   paint();
+}
+
+function confirmBuildTower(typeId: string): void {
+  if (selectedBuildCell === null || !lastMatch) return;
+  lastError = "";
+  socket.send({
+    type: "buildTower",
+    cellId: selectedBuildCell,
+    typeId,
+  });
+  showBuildPopup = false;
+  selectedBuildCell = null;
+  buildOverlay.hide();
+  paint();
+}
+
+function patchModalTowerAffordability(
+  m: MatchState,
+  self: NonNullable<ReturnType<typeof me>>,
+): void {
+  const list = document.getElementById("build-modal-list");
+  if (!list || !showBuildPopup) return;
+  for (const t of myLoadout(m)) {
+    const btn = list.querySelector(
+      `[data-build-type="${t.id}"]`,
+    ) as HTMLButtonElement | null;
+    if (!btn) continue;
+    const cost = towerBuildCost(m, t.id);
+    const afford = canAffordCost(self.bank, cost);
+    btn.disabled = !afford;
+    btn.classList.toggle("cant-afford", !afford);
+    const chips = btn.querySelector(".cost-row");
+    if (chips) chips.innerHTML = costChipsHtml(cost, afford);
+  }
 }
 
 function myLoadout(m?: MatchState | null): TowerDef[] {
@@ -757,20 +791,12 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
     closeBuildPopup();
   });
   hud.querySelectorAll("[data-build-type]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
       if ((btn as HTMLButtonElement).disabled) return;
       const typeId = (btn as HTMLElement).dataset.buildType!;
-      if (selectedBuildCell === null || !lastMatch) return;
-      lastError = "";
-      socket.send({
-        type: "buildTower",
-        cellId: selectedBuildCell,
-        typeId,
-      });
-      showBuildPopup = false;
-      selectedBuildCell = null;
-      buildOverlay.hide();
-      paint();
+      confirmBuildTower(typeId);
     });
   });
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
@@ -852,40 +878,11 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
     );
   });
   const modal = document.getElementById("build-modal");
-  if (modal && !showBuildPopup) {
-    modal.hidden = true;
+  if (modal) {
+    modal.hidden = !showBuildPopup;
   }
   if (showBuildPopup && self) {
-    const list = document.getElementById("build-modal-list");
-    if (list) {
-      list.innerHTML = loadout
-        .map((t) => {
-          const cost = towerBuildCost(m, t.id);
-          const afford = canAffordCost(self.bank, cost);
-          const color = TOWER_TYPE_COLORS[t.id] ?? "#9ab";
-          return `<button type="button" class="build-btn type-chip ${afford ? "" : "cant-afford"}" data-build-type="${t.id}" ${afford ? "" : "disabled"} style="--type-color:${color}">
-            <span class="btn-label">${towerVisualIconHtml(t.visualId)} ${t.id} · p${t.power} r${t.range}</span>
-            <span class="cost-row">${costChipsHtml(cost, afford)}</span>
-          </button>`;
-        })
-        .join("");
-      list.querySelectorAll("[data-build-type]").forEach((btn) => {
-        btn.addEventListener("click", () => {
-          if ((btn as HTMLButtonElement).disabled) return;
-          const typeId = (btn as HTMLElement).dataset.buildType!;
-          if (selectedBuildCell === null) return;
-          socket.send({
-            type: "buildTower",
-            cellId: selectedBuildCell,
-            typeId,
-          });
-          showBuildPopup = false;
-          selectedBuildCell = null;
-          buildOverlay.hide();
-          paint();
-        });
-      });
-    }
+    patchModalTowerAffordability(m, self);
   }
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
     const el = btn as HTMLButtonElement;
@@ -1396,6 +1393,7 @@ function syncWorldBuildOverlay(): void {
     cellId === null ||
     showBuildPopup ||
     !anyTowerAffordable(m) ||
+    m.towers.some((t) => t.cellId === cellId) ||
     !freeTowerPads(m).includes(cellId)
   ) {
     buildOverlay.hide();

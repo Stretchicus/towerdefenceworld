@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.51 — 2026-07-23
+
+### Fixed
+
+- Build modal tower buttons work on a single click (no longer rebuilt every combat tick)
+- World BUILD bar actually hides (`hidden` was overridden by CSS `display: grid`)
+
 ## 0.1.50 — 2026-07-23
 
 ### Fixed

@@ -307,6 +307,10 @@ header.top {
   pointer-events: auto;
 }
 
+.world-build-bar[hidden] {
+  display: none !important;
+}
+
 .build-bar-label {
   font-size: 0.55rem;
   font-weight: 800;
