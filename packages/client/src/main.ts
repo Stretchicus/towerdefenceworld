@@ -99,6 +99,7 @@ interface MatchState {
   }[];
   corridorCellIds?: number[];
   bodMoveEveryTicks?: number;
+  myEdgeBlocks?: string[];
   costs?: {
     baseUpgradeBase: Record<string, number>;
     baseUpgradeLevelIncrease: number;
@@ -110,7 +111,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.54";
+const CLIENT_BUILD = "v0.1.55";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -1102,6 +1103,7 @@ function renderMatch(): void {
     const buildList =
       m.phase === "combat"
         ? `<h2>BUILD TARGETS</h2>
+      <p class="hint">Click a road to toggle your no-entry sign.</p>
       <div class="pad-rail" id="pad-rail">
         ${
           pads.length === 0
@@ -1258,6 +1260,14 @@ function renderMatch(): void {
     phase: m.phase,
     winnerIds: m.winnerIds ?? [],
     padsAffordable: anyAfford,
+    myEdgeBlocks: (m.myEdgeBlocks ?? []).flatMap((key) => {
+      const [cellA, cellB, extra] = key.split(":").map(Number);
+      return Number.isInteger(cellA) &&
+        Number.isInteger(cellB) &&
+        extra === undefined
+        ? [{ cellA: cellA!, cellB: cellB! }]
+        : [];
+    }),
   };
   const planetKey = `${m.planet.cells.length}:${m.phase}:${myTurn ? legalCellIds.join(",") : ""}:${self?.baseCellId ?? ""}`;
   if (planetBuiltFor !== planetKey) {
@@ -1292,6 +1302,11 @@ planet.onTileDrop = (cellId, rotation) => {
   );
   if (!legal) return;
   socket.send({ type: "placeTile", cellId, rotation });
+};
+
+planet.onRoadEdgeClick = (cellA, cellB) => {
+  if (!lastMatch || lastMatch.phase !== "combat") return;
+  socket.send({ type: "toggleNoEntry", cellA, cellB });
 };
 
 planet.onTileRotateRequest = (dir) => rotatePlacement(dir);

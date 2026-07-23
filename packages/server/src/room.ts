@@ -7,6 +7,7 @@ import {
   intentPlaceTile,
   intentToggleBod,
   intentToggleFriendlyFire,
+  intentToggleNoEntry,
   intentUpgrade,
   runAiCombat,
   runAiPlacement,
@@ -38,6 +39,7 @@ export type ClientMessage =
   | { type: "claimMine"; cellId: number }
   | { type: "upgrade"; target: UpgradeTarget }
   | { type: "toggleBod"; bodTypeId: string; enabled: boolean }
+  | { type: "toggleNoEntry"; cellA: number; cellB: number }
   | { type: "toggleTarget"; targetId: string; enabled: boolean }
   | { type: "toggleFriendlyFire"; towerId: string; enabled: boolean }
   | { type: "leave" };
@@ -486,6 +488,21 @@ export function handleMessage(
         if (!room.match) break;
         intentToggleBod(room.match, playerId, raw.bodTypeId, raw.enabled);
         broadcastState(room);
+        break;
+      }
+      case "toggleNoEntry": {
+        if (!room.match) break;
+        const r = intentToggleNoEntry(
+          room.match,
+          playerId,
+          raw.cellA,
+          raw.cellB,
+        );
+        if (!r.ok) {
+          send({ type: "error", message: r.error ?? "toggle failed" });
+        } else {
+          broadcastState(room);
+        }
         break;
       }
       case "toggleTarget": {

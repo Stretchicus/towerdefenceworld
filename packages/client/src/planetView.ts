@@ -49,6 +49,7 @@ export interface PlanetViewData {
   winnerIds?: string[];
   /** When false, empty tower pads render dimmed (no affordable tower). */
   padsAffordable?: boolean;
+  myEdgeBlocks?: { cellA: number; cellB: number }[];
 }
 
 const TEAM_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
@@ -254,6 +255,7 @@ export class PlanetView {
   onTileDrop: ((cellId: number, rotation: number) => void) | null = null;
   onTileRotateRequest: ((dir: 1 | -1) => void) | null = null;
   onHoverCell: ((cellId: number | null) => void) | null = null;
+  onRoadEdgeClick: ((cellA: number, cellB: number) => void) | null = null;
 
   constructor(canvasParent: HTMLElement) {
     this.camera = new THREE.PerspectiveCamera(
@@ -583,6 +585,23 @@ export class PlanetView {
     return id ?? null;
   }
 
+  private rayRoadEdge(
+    e: MouseEvent,
+  ): { cellA: number; cellB: number } | null {
+    const rect = this.renderer.domElement.getBoundingClientRect();
+    const mouse = new THREE.Vector2(
+      ((e.clientX - rect.left) / rect.width) * 2 - 1,
+      -((e.clientY - rect.top) / rect.height) * 2 + 1,
+    );
+    const ray = new THREE.Raycaster();
+    ray.setFromCamera(mouse, this.camera);
+    const hit = ray.intersectObjects(this.pathGroup.children)[0];
+    const edge = hit?.object.userData.roadEdge as
+      | { cellA: number; cellB: number }
+      | undefined;
+    return edge ?? null;
+  }
+
   private updateCamera(): void {
     this.camera.position.set(0, 0, this.cameraRadius);
     this.camera.lookAt(0, 0, 0);
@@ -637,6 +656,13 @@ export class PlanetView {
   }
 
   private pick(e: MouseEvent): void {
+    if (this.interactionMode === "combat") {
+      const edge = this.rayRoadEdge(e);
+      if (edge) {
+        this.onRoadEdgeClick?.(edge.cellA, edge.cellB);
+        return;
+      }
+    }
     const id = this.rayCell(e);
     if (id === null) return;
     // Placement-only selection highlight (combat clicks must not stick)
@@ -877,7 +903,10 @@ export class PlanetView {
       return { a, b, mid: a.clone().add(b).multiplyScalar(0.5) };
     };
 
-    const addRibbon = (points: THREE.Vector3[]) => {
+    const addRibbon = (
+      points: THREE.Vector3[],
+      roadEdge: { cellA: number; cellB: number },
+    ) => {
       if (points.length < 2) return;
       for (let s = 0; s < points.length - 1; s++) {
         const p0 = points[s]!;
@@ -916,7 +945,9 @@ export class PlanetView {
           ),
         );
         geo.computeVertexNormals();
-        this.pathGroup.add(new THREE.Mesh(geo, mat));
+        const ribbon = new THREE.Mesh(geo, mat);
+        ribbon.userData.roadEdge = roadEdge;
+        this.pathGroup.add(ribbon);
       }
     };
 
@@ -956,7 +987,10 @@ export class PlanetView {
           ca.length() * 0.5 + cb.length() * 0.5,
         );
         // Face centre → shared edge → neighbour centre (continuous across the join)
-        addRibbon([ca, mid, cb]);
+        addRibbon([ca, mid, cb], {
+          cellA: Math.min(placed.cellId, nid),
+          cellB: Math.max(placed.cellId, nid),
+        });
       }
     }
   }
@@ -977,6 +1011,10 @@ export class PlanetView {
       data.phase ?? "",
       (data.winnerIds ?? []).join(","),
       data.padsAffordable === false ? "0" : "1",
+      (data.myEdgeBlocks ?? [])
+        .map(({ cellA, cellB }) => `${cellA}:${cellB}`)
+        .sort()
+        .join(","),
     ].join("|");
   }
 
@@ -1014,6 +1052,44 @@ export class PlanetView {
     const padRingEmissive = padsAffordable ? 1.15 : 0.25;
     const padColor = padsAffordable ? 0x145050 : 0x0a2020;
     const padRingColor = padsAffordable ? 0x7bffe8 : 0x2a5050;
+
+    for (const { cellA, cellB } of data.myEdgeBlocks ?? []) {
+      const a = cellMap.get(cellA);
+      const b = cellMap.get(cellB);
+      if (!a || !b) continue;
+      const midpoint = new THREE.Vector3(
+        a.center.x + b.center.x,
+        a.center.y + b.center.y,
+        a.center.z + b.center.z,
+      ).normalize();
+      const outward = midpoint.clone();
+      midpoint.multiplyScalar(1.026);
+      const flatQuat = this.cellFlatQuat(outward);
+      const material = new THREE.MeshStandardMaterial({
+        color: 0xff3048,
+        emissive: 0xaa0018,
+        emissiveIntensity: 1.1,
+        roughness: 0.45,
+        metalness: 0.1,
+        depthTest: false,
+      });
+      const sign = new THREE.Group();
+      sign.position.copy(midpoint);
+      sign.quaternion.copy(flatQuat);
+      sign.renderOrder = 30;
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(0.047, 0.009, 10, 28),
+        material,
+      );
+      const slash = new THREE.Mesh(
+        new THREE.BoxGeometry(0.078, 0.012, 0.008),
+        material.clone(),
+      );
+      slash.rotation.z = Math.PI / 4;
+      slash.position.z = 0.002;
+      sign.add(ring, slash);
+      this.markers.add(sign);
+    }
 
     // Empty tower pads — raised cyan plinth + ring (must lie flat on the face)
     for (const placed of data.placed) {
