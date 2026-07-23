@@ -17,6 +17,7 @@ export {
   rotateConnections,
   generateTileBag,
   bridgeTileTemplate,
+  pickMineResource,
 } from "./tiles/bag.js";
 export {
   createPlacementState,

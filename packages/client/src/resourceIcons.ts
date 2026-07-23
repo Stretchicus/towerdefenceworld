@@ -12,6 +12,17 @@ const LABELS: Record<string, string> = {
   water: "water",
 };
 
+/** Hex colours for 3D mines / orbs */
+export const RESOURCE_COLORS: Record<string, number> = {
+  stone: 0xc4c0b8,
+  power: 0xf5d76e,
+  water: 0x5eb8e8,
+};
+
+export function resourceColor(id: string): number {
+  return RESOURCE_COLORS[id] ?? 0x9aabb8;
+}
+
 export function resourceLabel(id: string): string {
   return LABELS[id] ?? id;
 }

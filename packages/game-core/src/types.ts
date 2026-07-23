@@ -32,10 +32,11 @@ export interface TowerDef {
 
 export interface MineDef {
   id: string;
-  generated: ResourceMap;
+  /** Amount of the mine's single resource granted per bod visit */
+  amount: number;
   upgradeCost: ResourceMap;
   upgradeLevelIncrease: number;
-  upgradeGeneratedIncrease: Record<string, number>;
+  upgradeAmountIncrease: number;
 }
 
 export interface BodDef {
@@ -126,6 +127,9 @@ export interface TileDef {
   connections: boolean[];
   hasTowerPoint: boolean;
   hasMine: boolean;
+  /** Resource id this mine yields (set at tile creation from active resources) */
+  mineResourceId?: string;
+  /** @deprecated yield template id; prefer mineResourceId + config.mines.basic.amount */
   mineTypeId?: string;
 }
 

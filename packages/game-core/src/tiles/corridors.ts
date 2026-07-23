@@ -1,5 +1,5 @@
 import type { Planet, PlanetCell, TileDef } from "../types.js";
-import { makeTile, rotateConnections } from "./bag.js";
+import { makeTile, pickMineResource, rotateConnections } from "./bag.js";
 import { createPlacementState, type PlacementState } from "./placement.js";
 
 export interface CorridorNetwork {
@@ -203,7 +203,11 @@ export function buildCorridorNetwork(
 function tileFromMask(
   cell: PlanetCell,
   opens: boolean[],
-  extras: { hasTowerPoint: boolean; hasMine: boolean },
+  extras: {
+    hasTowerPoint: boolean;
+    hasMine: boolean;
+    mineResourceId?: string;
+  },
 ): { tile: TileDef; rotation: number } {
   const openCount = opens.filter(Boolean).length;
   const routeKind = openCount <= 2 ? "single" : "branch";
@@ -214,6 +218,7 @@ function tileFromMask(
     hasTowerPoint: extras.hasTowerPoint,
     hasMine: extras.hasMine,
     mineTypeId: extras.hasMine ? "basic" : undefined,
+    mineResourceId: extras.mineResourceId,
   });
   return { tile, rotation: 0 };
 }
@@ -222,6 +227,8 @@ export interface CorridorFillOpts {
   towerPointChance: number;
   mineChance: number;
   minTowerPoints?: number;
+  /** Active match resources — mines pick one at creation */
+  resources: string[];
   rng: () => number;
 }
 
@@ -282,9 +289,13 @@ export function fillCorridorPlacement(
     const cell = state.planet.cells[cellId]!;
     const opens = network.requiredOpen.get(cellId);
     if (!opens) continue;
+    const hasMine = opts.rng() < opts.mineChance;
     const { tile, rotation } = tileFromMask(cell, opens, {
       hasTowerPoint: towerFlags.get(cellId) ?? false,
-      hasMine: opts.rng() < opts.mineChance,
+      hasMine,
+      mineResourceId: hasMine
+        ? pickMineResource(opts.resources, opts.rng)
+        : undefined,
     });
     state.placed.set(cellId, {
       cellId,
@@ -394,9 +405,13 @@ export function generateCorridorBag(
   for (const cellId of nonBase) {
     const cell = planet.cells[cellId]!;
     const opens = network.requiredOpen.get(cellId)!;
+    const hasMine = opts.rng() < opts.mineChance;
     const { tile } = tileFromMask(cell, opens, {
       hasTowerPoint: towerFlags.get(cellId) ?? false,
-      hasMine: opts.rng() < opts.mineChance,
+      hasMine,
+      mineResourceId: hasMine
+        ? pickMineResource(opts.resources, opts.rng)
+        : undefined,
     });
     bag.push(tile);
   }

@@ -93,6 +93,8 @@ export interface BodInstance {
   /** Ticks until next cell step */
   moveCooldown: number;
   held: ResourceMap;
+  /** Resource ids collected (one per mine visit) for client orbit FX */
+  pickups: string[];
   targetPlayerId: string;
   buildRemaining: number;
 }
@@ -191,6 +193,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
           towerPointChance: config.towerPointChance,
           mineChance: config.mineChance,
           minTowerPoints: config.minTowerPoints,
+          resources,
           rng: rngBag,
         })
       : []; // auto fills corridors directly — no bag
@@ -267,6 +270,7 @@ function runAutoPlacement(state: MatchState): void {
     towerPointChance: state.config.towerPointChance,
     mineChance: state.config.mineChance,
     minTowerPoints: state.config.minTowerPoints,
+    resources: state.resources,
     rng,
   });
   state.bagIndex = state.tileBag.length;
@@ -279,6 +283,7 @@ export function finishPlacement(state: MatchState): void {
     towerPointChance: state.config.towerPointChance,
     mineChance: state.config.mineChance,
     minTowerPoints: state.config.minTowerPoints,
+    resources: state.resources,
     rng: createRng(state.seed ^ 0x51f),
   });
   if (!basesConnected(state.placement)) {
@@ -525,43 +530,15 @@ export function intentBuildTower(
     friendlyFire: def.friendlyFireDefault,
     cooldown: 0,
   });
-  // Auto-claim mine on same tile if present and unclaimed
-  if (placed.tile.hasMine && !state.mines.some((m) => m.cellId === cellId)) {
-    const mineType = placed.tile.mineTypeId ?? "basic";
-    state.mines.push({
-      id: `mn-${state.nextEntityId++}`,
-      cellId,
-      ownerId: playerId,
-      typeId: mineType,
-      level: 0,
-    });
-  }
   return { ok: true };
 }
 
+/** Mines are neutral — claiming is a no-op kept for protocol compatibility. */
 export function intentClaimMine(
-  state: MatchState,
-  playerId: string,
-  cellId: number,
+  _state: MatchState,
+  _playerId: string,
+  _cellId: number,
 ): { ok: boolean; error?: string } {
-  if (state.phase !== "combat") return { ok: false, error: "not_combat" };
-  const player = state.players.find((p) => p.id === playerId);
-  if (!player?.alive) return { ok: false, error: "dead" };
-  const placed = state.placement.placed.get(cellId);
-  if (!placed?.tile.hasMine) return { ok: false, error: "no_mine" };
-  if (state.mines.some((m) => m.cellId === cellId)) {
-    return { ok: false, error: "claimed" };
-  }
-  const mineType = placed.tile.mineTypeId ?? "basic";
-  const def = state.config.mines[mineType];
-  if (!def) return { ok: false, error: "bad_type" };
-  state.mines.push({
-    id: `mn-${state.nextEntityId++}`,
-    cellId,
-    ownerId: playerId,
-    typeId: mineType,
-    level: 0,
-  });
   return { ok: true };
 }
 
@@ -592,19 +569,8 @@ export function intentUpgrade(
   }
 
   if (target.kind === "mine") {
-    const m = state.mines.find(
-      (x) => x.id === target.structureId && x.ownerId === playerId,
-    );
-    if (!m) return { ok: false, error: "missing" };
-    const def = state.config.mines[m.typeId]!;
-    const cost = filterCostToResources(
-      scaleCost(def.upgradeCost, def.upgradeLevelIncrease, m.level),
-      state.resources,
-    );
-    if (!canAfford(player.bank, cost)) return { ok: false, error: "funds" };
-    pay(player.bank, cost);
-    m.level++;
-    return { ok: true };
+    // Neutral mines — upgrades disabled this pass
+    return { ok: false, error: "no_mine_upgrade" };
   }
 
   if (target.kind === "bod") {
@@ -678,15 +644,24 @@ function bodStats(state: MatchState, owner: PlayerState, typeId: string) {
   };
 }
 
-function mineGenerated(state: MatchState, m: MineStructure): ResourceMap {
-  const def = state.config.mines[m.typeId]!;
-  const out: ResourceMap = {};
-  for (const [k, v] of Object.entries(def.generated)) {
-    if (!state.resources.includes(k)) continue;
-    const inc = def.upgradeGeneratedIncrease[k] ?? 0;
-    out[k] = v * (1 + inc * m.level);
+const MAX_BOD_PICKUPS = 12;
+
+function mineVisitAmount(state: MatchState): number {
+  const def = state.config.mines.basic ?? Object.values(state.config.mines)[0];
+  return def?.amount ?? 2;
+}
+
+/** Neutral mine on a placed tile — grant one resource visit to the bod. */
+function collectMineIfPresent(state: MatchState, bod: BodInstance): void {
+  const placed = state.placement.placed.get(bod.cellId);
+  const resourceId = placed?.tile.mineResourceId;
+  if (!placed?.tile.hasMine || !resourceId) return;
+  if (!state.resources.includes(resourceId)) return;
+  const amount = mineVisitAmount(state);
+  bod.held[resourceId] = (bod.held[resourceId] ?? 0) + amount;
+  if (bod.pickups.length < MAX_BOD_PICKUPS) {
+    bod.pickups.push(resourceId);
   }
-  return out;
 }
 
 function killBod(
@@ -766,6 +741,7 @@ export function tickMatch(state: MatchState): void {
       pathIndex: 0,
       moveCooldown: state.config.bodMoveEveryTicks,
       held: {},
+      pickups: [],
       targetPlayerId: targetId,
       buildRemaining: 0,
     });
@@ -837,8 +813,7 @@ export function tickMatch(state: MatchState): void {
 
     bod.pathIndex++;
     bod.cellId = bod.path[bod.pathIndex]!;
-    const mine = state.mines.find((m) => m.cellId === bod.cellId);
-    if (mine) addResources(bod.held, mineGenerated(state, mine), 1);
+    collectMineIfPresent(state, bod);
 
     if (bod.pathIndex < bod.path.length - 1) {
       bod.moveCooldown = state.config.bodMoveEveryTicks;
@@ -1016,6 +991,7 @@ export function serializeMatch(state: MatchState) {
       pathIndex: b.pathIndex,
       moveCooldown: b.moveCooldown,
       held: b.held,
+      pickups: b.pickups,
       targetPlayerId: b.targetPlayerId,
     })),
     buildQueue: state.buildQueue,

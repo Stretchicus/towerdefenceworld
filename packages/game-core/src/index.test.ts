@@ -235,6 +235,7 @@ describe("match combat", () => {
       pathIndex: 0,
       moveCooldown: 0,
       held: {},
+      pickups: [],
       targetPlayerId: "p1",
       buildRemaining: 0,
     });
@@ -249,6 +250,36 @@ describe("match combat", () => {
     });
     tickMatch(match);
     assert.equal(match.towers[0]!.cooldown, 1);
+  });
+
+  it("assigns mineResourceId from active resources on corridor tiles", () => {
+    const match = createMatch({
+      id: "mine-res",
+      seed: 99,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "auto",
+        resourceCount: 2,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: true },
+        { id: "p2", name: "B", isAi: true },
+      ],
+    });
+    assert.deepEqual(match.resources, ["stone", "power"]);
+    const mineTiles = [...match.placement.placed.values()].filter(
+      (p) => p.tile.hasMine,
+    );
+    assert.ok(mineTiles.length > 0, "expected some mine tiles");
+    for (const p of mineTiles) {
+      assert.ok(
+        p.tile.mineResourceId === "stone" || p.tile.mineResourceId === "power",
+        `unexpected resource ${p.tile.mineResourceId}`,
+      );
+    }
   });
 
   it("pays bod build cost from the owner bank when the bod is created", () => {
@@ -358,6 +389,7 @@ describe("match combat", () => {
       pathIndex: 0,
       moveCooldown: 0,
       held: { stone: 100 },
+      pickups: ["stone"],
       targetPlayerId: "p1",
       buildRemaining: 0,
     });

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.53 — 2026-07-23
+
+### Added
+
+- Neutral single-resource mines: each mine yields one match resource; bods pick up on step-on
+- Coloured mine visuals with floating resource icons; orbiting pickup orbs on bods
+- Placement tile preview names the mine resource
+
+### Changed
+
+- Mines are no longer claimable; kill loot still uses held × `resourcePercOnDeath`
+
 ## 0.1.52 — 2026-07-23
 
 ### Fixed

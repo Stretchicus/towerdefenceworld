@@ -5,7 +5,12 @@ import { createRng } from "../rng.js";
 export function makeTile(
   id: string,
   connections: boolean[],
-  extras: Partial<Pick<TileDef, "hasTowerPoint" | "hasMine" | "mineTypeId" | "routeKind">> = {},
+  extras: Partial<
+    Pick<
+      TileDef,
+      "hasTowerPoint" | "hasMine" | "mineTypeId" | "mineResourceId" | "routeKind"
+    >
+  > = {},
 ): TileDef {
   const routeKind =
     extras.routeKind ??
@@ -17,6 +22,7 @@ export function makeTile(
     hasTowerPoint: extras.hasTowerPoint ?? false,
     hasMine: extras.hasMine ?? false,
     mineTypeId: extras.mineTypeId,
+    mineResourceId: extras.mineResourceId,
   };
 }
 
@@ -36,39 +42,56 @@ export function rotateConnections(
   return base.map((_, i) => base[(i - r + sides) % sides]!);
 }
 
+/** Pick a single resource id from the active match list. */
+export function pickMineResource(
+  resources: string[],
+  rng: () => number,
+): string | undefined {
+  if (!resources.length) return undefined;
+  const i = Math.floor(rng() * resources.length);
+  return resources[Math.min(i, resources.length - 1)];
+}
+
 export function generateTileBag(
   config: GameConfig,
   size: WorldSize,
   seed: number,
+  activeResources?: string[],
 ): TileDef[] {
   const rng = createRng(seed);
   const count = config.tileBagSize[size];
+  const resources =
+    activeResources?.length
+      ? activeResources
+      : config.resources.slice(0, config.resourceCountDefault);
   const bag: TileDef[] = [];
   for (let i = 0; i < count; i++) {
     const kindRoll = rng();
     let connections: boolean[];
     let routeKind: TileDef["routeKind"];
     if (kindRoll < 0.55) {
-      // straight-ish single
       connections = [true, false, false, true, false, false];
       routeKind = "single";
     } else if (kindRoll < 0.85) {
-      // soft bend
       connections = [true, false, true, false, false, false];
       routeKind = "single";
     } else {
-      // branch T
       connections = [true, false, true, false, true, false];
       routeKind = "branch";
     }
     const hasTowerPoint = rng() < config.towerPointChance;
     const hasMine = rng() < config.mineChance;
+    // Separate stream so mine resource pick does not desync bag layout RNG
+    const mineResourceId = hasMine
+      ? pickMineResource(resources, createRng(seed ^ (i * 0x9e3779b9)))
+      : undefined;
     bag.push(
       makeTile(`t${i}`, connections, {
         routeKind,
         hasTowerPoint,
         hasMine,
         mineTypeId: hasMine ? "basic" : undefined,
+        mineResourceId,
       }),
     );
   }

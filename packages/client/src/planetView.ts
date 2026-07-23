@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { EndGameCastleFx, type CastleFxSpec } from "./endGameFx.js";
+import { createMineVisual, createPickupOrb } from "./mineVisuals.js";
 import { createTowerVisual, tickTowerVisual } from "./towerVisuals.js";
 
 export interface CellView {
@@ -15,11 +16,15 @@ export interface PlanetViewData {
   baseCellIds: number[];
   placed: {
     cellId: number;
-    tile: { hasTowerPoint?: boolean; hasMine?: boolean };
+    tile: {
+      hasTowerPoint?: boolean;
+      hasMine?: boolean;
+      mineResourceId?: string;
+    };
     connections: boolean[];
   }[];
   towers: { cellId: number; ownerId: string; visualId?: string; typeId?: string }[];
-  mines: { cellId: number }[];
+  mines: { cellId: number; resourceId?: string }[];
   bods: {
     id: string;
     cellId: number;
@@ -30,6 +35,7 @@ export interface PlanetViewData {
     path?: number[];
     pathIndex?: number;
     moveCooldown?: number;
+    pickups?: string[];
   }[];
   bodMoveEveryTicks?: number;
   players: { id: string; baseCellId: number; teamId: string; alive: boolean }[];
@@ -785,10 +791,10 @@ export class PlanetView {
       data.towers
         .map((t) => `${t.cellId}:${t.ownerId}:${t.visualId ?? ""}`)
         .join(","),
-      data.mines.map((m) => m.cellId).join(","),
       data.placed
-        .map((p) =>
-          `${p.cellId}:${p.tile.hasTowerPoint ? 1 : 0}:${p.tile.hasMine ? 1 : 0}`,
+        .map(
+          (p) =>
+            `${p.cellId}:${p.tile.hasTowerPoint ? 1 : 0}:${p.tile.hasMine ? 1 : 0}:${p.tile.mineResourceId ?? ""}`,
         )
         .join(","),
       data.players.map((p) => `${p.id}:${p.baseCellId}:${p.alive}`).join(","),
@@ -828,8 +834,6 @@ export class PlanetView {
       ownerColor.set(p.id, TEAM_COLORS[i % TEAM_COLORS.length]!);
     });
     const towerCells = new Set(data.towers.map((t) => t.cellId));
-    const mineCells = new Set(data.mines.map((m) => m.cellId));
-    const R = PlanetView.SURFACE;
     const padsAffordable = data.padsAffordable !== false;
     const padEmissive = padsAffordable ? 0.75 : 0.2;
     const padRingEmissive = padsAffordable ? 1.15 : 0.25;
@@ -905,25 +909,21 @@ export class PlanetView {
       this.markers.add(pad);
     }
 
-    // Unclaimed mines
+    // Neutral resource mines (from placed tiles)
     for (const placed of data.placed) {
-      if (!placed.tile.hasMine || mineCells.has(placed.cellId)) continue;
+      if (!placed.tile.hasMine) continue;
       const cell = cellMap.get(placed.cellId);
       if (!cell) continue;
-      const mesh = new THREE.Mesh(
-        new THREE.OctahedronGeometry(0.035),
-        new THREE.MeshStandardMaterial({
-          color: 0xf0a05a,
-          emissive: 0xf0a05a,
-          emissiveIntensity: 0.5,
-        }),
-      );
-      mesh.position
-        .set(cell.center.x, cell.center.y, cell.center.z)
-        .normalize()
-        .multiplyScalar(R);
-      mesh.userData.cellId = placed.cellId;
-      this.markers.add(mesh);
+      const rid = placed.tile.mineResourceId ?? "stone";
+      const mine = createMineVisual(rid);
+      const { pos, quat } = this.cellFacePose(cell, 0.004);
+      mine.position.copy(pos);
+      mine.quaternion.copy(quat);
+      mine.userData.cellId = placed.cellId;
+      mine.traverse((obj) => {
+        obj.userData.cellId = placed.cellId;
+      });
+      this.markers.add(mine);
     }
 
     for (const t of data.towers) {
@@ -936,21 +936,6 @@ export class PlanetView {
       mesh.quaternion.copy(quat);
       mesh.userData.cellId = t.cellId;
       mesh.userData.towerAnim = true;
-      this.markers.add(mesh);
-    }
-
-    for (const m of data.mines) {
-      const cell = cellMap.get(m.cellId);
-      if (!cell) continue;
-      const mesh = new THREE.Mesh(
-        new THREE.BoxGeometry(0.05, 0.05, 0.05),
-        new THREE.MeshStandardMaterial({ color: 0xf0a05a }),
-      );
-      mesh.position
-        .set(cell.center.x, cell.center.y, cell.center.z)
-        .normalize()
-        .multiplyScalar(R);
-      mesh.userData.cellId = m.cellId;
       this.markers.add(mesh);
     }
 
@@ -1156,6 +1141,7 @@ export class PlanetView {
         applyBodTint(root, tint);
         root.userData.typeId = b.typeId;
       }
+      this.syncBodPickups(root, b.pickups ?? []);
     }
 
     for (const child of [...this.bodGroup.children]) {
@@ -1165,6 +1151,49 @@ export class PlanetView {
         this.localCooldownRemain.delete(id);
         this.localBodPathIndex.delete(id);
         disposeObject3D(child);
+      }
+    }
+  }
+
+  private syncBodPickups(root: THREE.Group, pickups: string[]): void {
+    let ring = root.children.find((c) => c.userData.part === "pickups") as
+      | THREE.Group
+      | undefined;
+    if (!ring) {
+      ring = new THREE.Group();
+      ring.userData.part = "pickups";
+      root.add(ring);
+    }
+    const key = pickups.join(",");
+    if (ring.userData.pickupKey === key) return;
+    ring.userData.pickupKey = key;
+    while (ring.children.length) {
+      const c = ring.children[0]!;
+      ring.remove(c);
+      disposeObject3D(c);
+    }
+    pickups.forEach((rid, i) => {
+      const orb = createPickupOrb(rid);
+      orb.userData.pickupIndex = i;
+      orb.userData.pickupCount = pickups.length;
+      ring!.add(orb);
+    });
+  }
+
+  private tickBodPickups(tSec: number): void {
+    for (const root of this.bodGroup.children) {
+      const ring = root.children.find((c) => c.userData.part === "pickups");
+      if (!ring) continue;
+      const n = Math.max(1, ring.children.length);
+      for (const orb of ring.children) {
+        const i = (orb.userData.pickupIndex as number) ?? 0;
+        const angle = tSec * 2.2 + (i / n) * Math.PI * 2;
+        const radius = 0.042 + (i % 3) * 0.006;
+        orb.position.set(
+          Math.cos(angle) * radius,
+          0.02 + Math.sin(tSec * 3 + i) * 0.006,
+          Math.sin(angle) * radius,
+        );
       }
     }
   }
@@ -1274,6 +1303,7 @@ export class PlanetView {
     for (const child of this.markers.children) {
       if (child.userData.towerAnim) tickTowerVisual(child, tSec);
     }
+    this.tickBodPickups(tSec);
 
     this.endGameFx.update(dt);
 

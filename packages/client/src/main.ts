@@ -9,7 +9,7 @@ import {
   workshopHtml,
   type WorkshopState,
 } from "./loadoutWorkshop.js";
-import { resourceAmountHtml } from "./resourceIcons.js";
+import { resourceAmountHtml, resourceLabel } from "./resourceIcons.js";
 import { towerVisualIconHtml } from "./towerVisualIcons.js";
 import {
   DEFAULT_TOWER_VISUAL,
@@ -53,6 +53,7 @@ interface MatchState {
     connections?: boolean[];
     hasTowerPoint?: boolean;
     hasMine?: boolean;
+    mineResourceId?: string;
   } | null;
   legalPlacements: { cellId: number; rotation: number }[];
   winnerIds: string[];
@@ -84,7 +85,7 @@ interface MatchState {
     level?: number;
     friendlyFire: boolean;
   }[];
-  mines: { cellId: number; id?: string; ownerId?: string }[];
+  mines: { cellId: number; id?: string; ownerId?: string; resourceId?: string }[];
   bods: {
     id: string;
     cellId: number;
@@ -95,6 +96,7 @@ interface MatchState {
     path?: number[];
     pathIndex?: number;
     moveCooldown?: number;
+    pickups?: string[];
   }[];
   corridorCellIds?: number[];
   bodMoveEveryTicks?: number;
@@ -109,7 +111,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.51";
+const CLIENT_BUILD = "v0.1.53";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -492,6 +494,23 @@ function tilePreviewSvg(
     ${edges.join("")}
     <circle cx="${cx}" cy="${cy}" r="4" fill="#3dd6c6"/>
   </svg>`;
+}
+
+function tilePlacementHint(
+  tile: NonNullable<MatchState["currentTile"]>,
+  rotation: number,
+): string {
+  const bits = [tile.routeKind ?? "route"];
+  if (tile.hasTowerPoint) bits.push("tower pad");
+  if (tile.hasMine) {
+    bits.push(
+      tile.mineResourceId
+        ? `${resourceLabel(tile.mineResourceId)} mine`
+        : "mine",
+    );
+  }
+  bits.push(`rot ${rotation}`);
+  return bits.join(" · ");
 }
 
 function rotatePlacement(dir: 1 | -1): void {
@@ -1127,7 +1146,7 @@ function renderMatch(): void {
         ? `<h2>CURRENT TILE</h2>
         <div id="tile-preview-wrap" class="tile-preview-wrap">
           ${tilePreviewSvg(tile.connections, placementRotation, 6)}
-          <p class="hint">${tile.routeKind ?? "route"}${tile.hasTowerPoint ? " · tower pad" : ""}${tile.hasMine ? " · mine" : ""} · rot ${placementRotation}</p>
+          <p class="hint">${tilePlacementHint(tile, placementRotation)}</p>
           <div class="row">
             <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
             <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
@@ -1260,13 +1279,6 @@ planet.onCellClick = (cellId) => {
       selectBuildPad(cellId);
       return;
     }
-    if (
-      placed?.tile.hasMine &&
-      !lastMatch.mines.some((x) => x.cellId === cellId)
-    ) {
-      socket.send({ type: "claimMine", cellId });
-      return;
-    }
     // Empty / non-pad ground clears build selection
     if (selectedBuildCell !== null) {
       clearBuildSelection();
@@ -1295,7 +1307,7 @@ planet.onHoverCell = (cellId) => {
       if (svg) {
         wrap.innerHTML = `
           ${tilePreviewSvg(tile.connections, placementRotation, 6)}
-          <p class="hint">${tile.routeKind ?? "route"}${tile.hasTowerPoint ? " · tower pad" : ""}${tile.hasMine ? " · mine" : ""} · rot ${placementRotation}</p>
+          <p class="hint">${tilePlacementHint(tile, placementRotation)}</p>
           <div class="row">
             <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
             <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>

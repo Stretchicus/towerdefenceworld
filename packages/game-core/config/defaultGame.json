@@ -91,10 +91,10 @@
   "mines": {
     "basic": {
       "id": "basic",
-      "generated": { "stone": 2, "water": 1 },
+      "amount": 2,
       "upgradeCost": { "stone": 15 },
       "upgradeLevelIncrease": 1.3,
-      "upgradeGeneratedIncrease": { "stone": 0.2, "water": 0.2 }
+      "upgradeAmountIncrease": 0.2
     }
   },
   "bods": {
