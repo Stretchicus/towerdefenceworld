@@ -246,6 +246,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
     aiPlacementPulse: 0,
   };
   state.currentOffer = sampleOffer(state);
+  if (!state.currentOffer) finishPlacement(state);
 
   if (settings.placementMode === "auto") {
     runAutoPlacement(state);

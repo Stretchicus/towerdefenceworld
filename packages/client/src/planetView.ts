@@ -55,6 +55,19 @@ export interface PlanetViewData {
 const TEAM_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const BOD_RADIUS = 0.055;
 const Y_UP = new THREE.Vector3(0, 1, 0);
+const MARKER_ROAD_PICK_TOLERANCE = 0.05;
+
+interface CellPickHit {
+  cellId: number;
+  distance: number;
+  isMarker: boolean;
+}
+
+interface RoadPickHit {
+  cellA: number;
+  cellB: number;
+  distance: number;
+}
 
 export function shadeBodColor(
   ownerHex: string,
@@ -569,6 +582,10 @@ export class PlanetView {
   }
 
   private rayCell(e: MouseEvent): number | null {
+    return this.rayCellHit(e)?.cellId ?? null;
+  }
+
+  private rayCellHit(e: MouseEvent): CellPickHit | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -579,15 +596,28 @@ export class PlanetView {
     const hits = ray.intersectObjects([
       ...this.cellMeshes.values(),
       ...this.markers.children,
-    ]);
-    if (!hits[0]) return null;
-    const id = hits[0].object.userData.cellId as number | undefined;
-    return id ?? null;
+    ], true);
+    for (const hit of hits) {
+      let object: THREE.Object3D | null = hit.object;
+      let cellId: number | undefined;
+      let isMarker = false;
+      while (object) {
+        if (object === this.markers) isMarker = true;
+        if (cellId === undefined && typeof object.userData.cellId === "number") {
+          cellId = object.userData.cellId;
+        }
+        object = object.parent;
+      }
+      if (cellId !== undefined) {
+        return { cellId, distance: hit.distance, isMarker };
+      }
+    }
+    return null;
   }
 
   private rayRoadEdge(
     e: MouseEvent,
-  ): { cellA: number; cellB: number } | null {
+  ): RoadPickHit | null {
     const rect = this.renderer.domElement.getBoundingClientRect();
     const mouse = new THREE.Vector2(
       ((e.clientX - rect.left) / rect.width) * 2 - 1,
@@ -599,7 +629,7 @@ export class PlanetView {
     const edge = hit?.object.userData.roadEdge as
       | { cellA: number; cellB: number }
       | undefined;
-    return edge ?? null;
+    return edge && hit ? { ...edge, distance: hit.distance } : null;
   }
 
   private updateCamera(): void {
@@ -656,20 +686,26 @@ export class PlanetView {
   }
 
   private pick(e: MouseEvent): void {
+    const cellHit = this.rayCellHit(e);
     if (this.interactionMode === "combat") {
       const edge = this.rayRoadEdge(e);
-      if (edge) {
+      const cellWins =
+        edge !== null &&
+        cellHit !== null &&
+        (cellHit.distance <= edge.distance ||
+          (cellHit.isMarker &&
+            cellHit.distance <= edge.distance + MARKER_ROAD_PICK_TOLERANCE));
+      if (edge && !cellWins) {
         this.onRoadEdgeClick?.(edge.cellA, edge.cellB);
         return;
       }
     }
-    const id = this.rayCell(e);
-    if (id === null) return;
+    if (!cellHit) return;
     // Placement-only selection highlight (combat clicks must not stick)
     if (this.interactionMode === "placement") {
-      this.selectedCell = id;
+      this.selectedCell = cellHit.cellId;
     }
-    this.onCellClick?.(id);
+    this.onCellClick?.(cellHit.cellId);
   }
 
   private clearGroup(group: THREE.Group): void {

@@ -304,6 +304,32 @@ describe("placement", () => {
     }
   });
 
+  it("finishes manual placement when the initial offer is unavailable", () => {
+    const match = createMatch({
+      id: "no-initial-offer",
+      seed: 3,
+      settings: {
+        mode: "ffa",
+        winRule: "last_base",
+        worldSize: "small",
+        placementMode: "manual",
+        resourceCount: 2,
+        seatCount: 2,
+      },
+      seats: [
+        { id: "p1", name: "A", isAi: false },
+        { id: "p2", name: "B", isAi: false },
+      ],
+      config: {
+        ...defaultGameConfig,
+        placementTurnCap: 0,
+      },
+    });
+
+    assert.equal(match.currentOffer, null);
+    assert.equal(match.phase, "combat");
+  });
+
   it("keeps the 3-seat split guarantee pending after a cross offer", () => {
     const match = createMatch({
       id: "forced-split",
