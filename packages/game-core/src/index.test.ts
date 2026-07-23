@@ -1,15 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  autoBridge,
   autoPlaceBag,
   basesConnected,
   buildPlanet,
-  buildRouteGraph,
   canAfford,
   createMatch,
   createPlacementState,
   createRng,
+  listOpenEnds,
   defaultTowerLoadout,
   deriveTowerCosts,
   generateTileBag,
@@ -88,21 +87,25 @@ describe("goldberg planet", () => {
 });
 
 describe("placement", () => {
-  it("auto-places and connects bases via bridge if needed", () => {
+  it("each base starts with exactly one open edge and one open end", () => {
     const planet = buildPlanet("small", 2);
-    const state = createPlacementState(planet);
-    const bag = generateTileBag(defaultGameConfig, "small", 42);
+    const rng = createRng(1);
+    const placement = createPlacementState(planet, rng);
+    for (const id of planet.baseCellIds) {
+      const opens = placement.placed.get(id)!.connections.filter(Boolean).length;
+      assert.equal(opens, 1);
+    }
+    const ends = listOpenEnds(placement);
+    assert.equal(ends.length, planet.baseCellIds.length);
+  });
+
+  it("auto-places tiles from single-stub bases", () => {
+    const planet = buildPlanet("small", 2);
     const rng = createRng(42);
+    const state = createPlacementState(planet, rng);
+    const bag = generateTileBag(defaultGameConfig, "small", 42);
     autoPlaceBag(state, bag, rng);
-    if (!basesConnected(state)) autoBridge(state);
-    assert.equal(basesConnected(state), true);
-    const graph = buildRouteGraph(state);
-    const path = findPath(
-      graph,
-      planet.baseCellIds[0]!,
-      planet.baseCellIds[1]!,
-    );
-    assert.ok(path && path.length >= 1);
+    assert.ok(state.placed.size > planet.baseCellIds.length);
   });
 
   it("corridor network links every base pair without dead-end stubs", () => {

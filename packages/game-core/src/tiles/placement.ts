@@ -13,22 +13,27 @@ export interface PlacementState {
   baseCellIds: number[];
 }
 
-export function createPlacementState(planet: Planet): PlacementState {
+export function createPlacementState(
+  planet: Planet,
+  rng: () => number = Math.random,
+): PlacementState {
   const placed = new Map<number, PlacedTile>();
-  // Bases start as open stubs: all edges open so any connecting tile can attach
   for (const id of planet.baseCellIds) {
     const cell = planet.cells[id]!;
+    const edge = Math.floor(rng() * cell.sides);
+    const connections = Array(cell.sides).fill(false);
+    connections[edge] = true;
     placed.set(id, {
       cellId: id,
       tile: {
         id: `base-stub-${id}`,
         routeKind: "branch",
-        connections: Array(6).fill(true),
+        connections: Array(6).fill(false),
         hasTowerPoint: false,
         hasMine: false,
       },
       rotation: 0,
-      connections: Array(cell.sides).fill(true),
+      connections,
     });
   }
   return { planet, placed, baseCellIds: [...planet.baseCellIds] };

@@ -34,6 +34,11 @@ export {
 } from "./tiles/placement.js";
 export type { PlacementState } from "./tiles/placement.js";
 export {
+  edgeKey,
+  listOpenEnds,
+} from "./tiles/openEnds.js";
+export type { OpenEnd } from "./tiles/openEnds.js";
+export {
   buildCorridorNetwork,
   fillCorridorPlacement,
   findLegalCorridorPlacements,
