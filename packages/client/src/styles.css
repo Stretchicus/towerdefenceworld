@@ -171,6 +171,13 @@ header.top {
 
 .tile-preview-wrap {
   margin: 0.4rem 0 0.75rem;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+}
+
+.tile-preview-wrap:active {
+  cursor: grabbing;
 }
 
 .tile-preview {

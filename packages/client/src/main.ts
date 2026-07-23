@@ -513,6 +513,28 @@ function tilePlacementHint(
   return bits.join(" · ");
 }
 
+function refreshTilePreviewPanel(): void {
+  const tile = lastMatch?.currentTile;
+  if (!tile?.connections) return;
+  planet.setPlacementPreview(tile.connections, placementRotation);
+  const wrap = document.getElementById("tile-preview-wrap");
+  if (!wrap) return;
+  wrap.innerHTML = `
+    ${tilePreviewSvg(tile.connections, placementRotation, 6)}
+    <p class="hint">${tilePlacementHint(tile, placementRotation)}</p>
+    <div class="row">
+      <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
+      <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
+    </div>
+    <p class="hint">Drag this tile to a <strong>green</strong> end. Right-click, second-finger tap, or use the buttons to rotate.</p>`;
+  document.getElementById("btn-rot-cw")?.addEventListener("click", () => {
+    rotatePlacement(1);
+  });
+  document.getElementById("btn-rot-ccw")?.addEventListener("click", () => {
+    rotatePlacement(-1);
+  });
+}
+
 function rotatePlacement(dir: 1 | -1): void {
   if (!lastMatch || lastMatch.phase !== "placement") return;
   const tile = lastMatch.currentTile;
@@ -531,7 +553,7 @@ function rotatePlacement(dir: 1 | -1): void {
             forCell.length
         ]!;
       placementRotation = next;
-      paint();
+      refreshTilePreviewPanel();
       return;
     }
   }
@@ -549,7 +571,7 @@ function rotatePlacement(dir: 1 | -1): void {
       }
     }
   }
-  paint();
+  refreshTilePreviewPanel();
 }
 
 function renderLobby(): void {
@@ -763,6 +785,16 @@ function renderLobby(): void {
 }
 
 function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
+  document
+    .getElementById("tile-preview-wrap")
+    ?.addEventListener("pointerdown", (event) => {
+      const e = event as PointerEvent;
+      if ((e.target as HTMLElement).closest("button")) return;
+      e.preventDefault();
+      e.stopPropagation();
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      planet.beginTileDrag(e);
+    });
   hud.querySelectorAll("[data-target]").forEach((btn) => {
     btn.addEventListener("click", () => {
       const id = (btn as HTMLElement).dataset.target!;
@@ -997,7 +1029,6 @@ function renderMatch(): void {
     m.currentSeat,
     m.bagIndex,
     myTurn ? "1" : "0",
-    placementRotation,
     pads.join(","),
     myTowers.map((t) => `${t.id}:${t.level ?? 0}:${t.typeId ?? ""}`).join(","),
     self?.baseLevel ?? 0,
@@ -1151,7 +1182,7 @@ function renderMatch(): void {
             <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
             <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
           </div>
-          <p class="hint">PC: mouse wheel rotates. Mobile: two-finger twist or buttons. Click a <strong>green</strong> cell.</p>
+          <p class="hint">Drag this tile to a <strong>green</strong> end. Right-click, second-finger tap, or use the buttons to rotate.</p>
         </div>`
         : "";
 
@@ -1257,21 +1288,11 @@ function renderMatch(): void {
   } else {
     planet.refreshMarkers(viewData);
   }
+  planet.setPlacementPreview(tile?.connections ?? [], placementRotation);
 }
 
 planet.onCellClick = (cellId) => {
   if (!lastMatch) return;
-  if (lastMatch.phase === "placement") {
-    const legal = (lastMatch.legalPlacements ?? []).filter(
-      (p) => p.cellId === cellId,
-    );
-    const rotation =
-      legal.find((p) => p.rotation === placementRotation)?.rotation ??
-      legal[0]?.rotation ??
-      placementRotation;
-    socket.send({ type: "placeTile", cellId, rotation });
-    return;
-  }
   if (lastMatch.phase === "combat") {
     const placed = lastMatch.placed.find((p) => p.cellId === cellId);
     const hasTower = lastMatch.towers.some((t) => t.cellId === cellId);
@@ -1286,7 +1307,16 @@ planet.onCellClick = (cellId) => {
   }
 };
 
-planet.onTileRotate = (dir) => rotatePlacement(dir);
+planet.onTileDrop = (cellId, rotation) => {
+  if (!lastMatch || lastMatch.phase !== "placement") return;
+  const legal = (lastMatch.legalPlacements ?? []).some(
+    (p) => p.cellId === cellId && p.rotation === rotation,
+  );
+  if (!legal) return;
+  socket.send({ type: "placeTile", cellId, rotation });
+};
+
+planet.onTileRotateRequest = (dir) => rotatePlacement(dir);
 
 planet.onHoverCell = (cellId) => {
   hoverCellId = cellId;
@@ -1300,29 +1330,7 @@ planet.onHoverCell = (cellId) => {
     !legal.some((p) => p.rotation === placementRotation)
   ) {
     placementRotation = legal[0]!.rotation;
-    const wrap = document.getElementById("tile-preview-wrap");
-    const tile = lastMatch.currentTile;
-    if (wrap && tile?.connections) {
-      const svg = wrap.querySelector(".tile-preview");
-      if (svg) {
-        wrap.innerHTML = `
-          ${tilePreviewSvg(tile.connections, placementRotation, 6)}
-          <p class="hint">${tilePlacementHint(tile, placementRotation)}</p>
-          <div class="row">
-            <button type="button" id="btn-rot-ccw" class="secondary">⟲ Rotate</button>
-            <button type="button" id="btn-rot-cw" class="secondary">Rotate ⟳</button>
-          </div>
-          <p class="hint">PC: mouse wheel rotates (snaps to next valid on hovered green cell). Mobile: twist with two fingers or use buttons. Click a <strong>green</strong> cell to place.</p>`;
-        document.getElementById("btn-rot-cw")?.addEventListener("click", () => {
-          rotatePlacement(1);
-        });
-        document
-          .getElementById("btn-rot-ccw")
-          ?.addEventListener("click", () => {
-            rotatePlacement(-1);
-          });
-      }
-    }
+    refreshTilePreviewPanel();
   }
 };
 

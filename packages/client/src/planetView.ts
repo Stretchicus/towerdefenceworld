@@ -175,12 +175,17 @@ export class PlanetView {
   private markers = new THREE.Group();
   private pathGroup = new THREE.Group();
   private bodGroup = new THREE.Group();
+  private tileDragGhost = new THREE.Group();
   private readonly endGameFx = new EndGameCastleFx();
   private lastBodData: PlanetViewData | null = null;
   private lastFrameMs = performance.now();
   private localCooldownRemain = new Map<string, number>();
   private localBodPathIndex = new Map<string, number>();
-  private drag = false;
+  private pointerMode: "idle" | "orbit" | "draggingTile" = "idle";
+  private tileDragPointerId: number | null = null;
+  private secondTouch:
+    | { pointerId: number; startX: number; startY: number; moved: boolean }
+    | null = null;
   private moved = false;
   private prevX = 0;
   private prevY = 0;
@@ -191,6 +196,9 @@ export class PlanetView {
   private spin = true;
   private interactionMode: "placement" | "combat" | "other" = "other";
   private hoverCellId: number | null = null;
+  private legalCellIds = new Set<number>();
+  private placementConnections: boolean[] = [];
+  private placementRotation = 0;
   private markersKey = "";
   private routesKey = "";
   private cellCenters = new Map<number, THREE.Vector3>();
@@ -243,7 +251,8 @@ export class PlanetView {
   private static readonly _axis = new THREE.Vector3();
   private static readonly _v = new THREE.Vector3();
   onCellClick: ((cellId: number) => void) | null = null;
-  onTileRotate: ((dir: 1 | -1) => void) | null = null;
+  onTileDrop: ((cellId: number, rotation: number) => void) | null = null;
+  onTileRotateRequest: ((dir: 1 | -1) => void) | null = null;
   onHoverCell: ((cellId: number | null) => void) | null = null;
 
   constructor(canvasParent: HTMLElement) {
@@ -270,24 +279,74 @@ export class PlanetView {
     this.pivot.add(this.pathGroup);
     this.pivot.add(this.markers);
     this.pivot.add(this.bodGroup);
+    this.pivot.add(this.tileDragGhost);
     this.pivot.add(this.endGameFx.group);
     this.scene.add(this.pivot);
     this.updateCamera();
 
     const el = this.renderer.domElement;
     el.addEventListener("pointerdown", (e) => {
-      this.drag = true;
+      if (!e.isPrimary || e.button !== 0 || this.pointerMode !== "idle") return;
+      this.pointerMode = "orbit";
       this.moved = false;
       this.focusQuat = null;
       this.spinVel.set(0, 0, 0);
       this.prevX = e.clientX;
       this.prevY = e.clientY;
     });
-    window.addEventListener("pointerup", () => {
-      this.drag = false;
+    window.addEventListener("pointerdown", (e) => {
+      if (
+        this.pointerMode === "draggingTile" &&
+        e.pointerType === "touch" &&
+        e.pointerId !== this.tileDragPointerId &&
+        !this.secondTouch
+      ) {
+        this.secondTouch = {
+          pointerId: e.pointerId,
+          startX: e.clientX,
+          startY: e.clientY,
+          moved: false,
+        };
+      }
+    });
+    window.addEventListener("pointerup", (e) => {
+      if (
+        this.secondTouch?.pointerId === e.pointerId
+      ) {
+        const rotate =
+          !this.secondTouch.moved &&
+          this.hoverCellId !== null &&
+          this.legalCellIds.has(this.hoverCellId);
+        this.secondTouch = null;
+        if (rotate) this.onTileRotateRequest?.(1);
+        return;
+      }
+      if (
+        this.pointerMode === "draggingTile" &&
+        e.pointerId === this.tileDragPointerId
+      ) {
+        this.finishTileDrag(e);
+        return;
+      }
+      if (this.pointerMode === "orbit") this.pointerMode = "idle";
+    });
+    window.addEventListener("pointercancel", (e) => {
+      if (this.secondTouch?.pointerId === e.pointerId) {
+        this.secondTouch = null;
+        return;
+      }
+      if (
+        this.pointerMode === "draggingTile" &&
+        e.pointerId === this.tileDragPointerId
+      ) {
+        this.cancelTileDrag();
+        return;
+      }
+      if (this.pointerMode === "orbit") this.pointerMode = "idle";
     });
     el.addEventListener("pointermove", (e) => {
-      if (!this.drag) {
+      if (this.pointerMode === "draggingTile") return;
+      if (this.pointerMode !== "orbit") {
         this.updateHover(e);
         return;
       }
@@ -298,12 +357,29 @@ export class PlanetView {
       this.prevY = e.clientY;
       this.applyTrackballDrag(dx, dy);
     });
-    el.addEventListener("wheel", (e) => {
-      e.preventDefault();
-      if (this.interactionMode === "placement" && this.onTileRotate) {
-        this.onTileRotate(e.deltaY > 0 ? 1 : -1);
+    window.addEventListener("pointermove", (e) => {
+      if (this.secondTouch?.pointerId === e.pointerId) {
+        if (
+          Math.hypot(
+            e.clientX - this.secondTouch.startX,
+            e.clientY - this.secondTouch.startY,
+          ) > 8
+        ) {
+          this.secondTouch.moved = true;
+        }
         return;
       }
+      if (
+        this.pointerMode !== "draggingTile" ||
+        e.pointerId !== this.tileDragPointerId
+      ) {
+        return;
+      }
+      this.updateHover(e);
+      this.redrawTileDragGhost();
+    });
+    el.addEventListener("wheel", (e) => {
+      e.preventDefault();
       this.cameraRadius = Math.min(
         8,
         Math.max(2.4, this.cameraRadius + e.deltaY * 0.002),
@@ -311,10 +387,8 @@ export class PlanetView {
       this.updateCamera();
     });
 
-    // Mobile: two-finger pinch zooms; two-finger twist rotates tile in placement
+    // Mobile: two-finger pinch zooms. Tile rotation uses a second-finger tap.
     let pinchStartDist = 0;
-    let pinchStartAngle = 0;
-    let lastTwistBucket = 0;
     el.addEventListener(
       "touchstart",
       (e) => {
@@ -322,8 +396,7 @@ export class PlanetView {
           const a = e.touches[0]!;
           const b = e.touches[1]!;
           pinchStartDist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-          pinchStartAngle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
-          lastTwistBucket = 0;
+          if (this.pointerMode === "orbit") this.pointerMode = "idle";
         }
       },
       { passive: true },
@@ -336,7 +409,6 @@ export class PlanetView {
         const a = e.touches[0]!;
         const b = e.touches[1]!;
         const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY);
-        const angle = Math.atan2(b.clientY - a.clientY, b.clientX - a.clientX);
         if (pinchStartDist > 0) {
           const scale = pinchStartDist / dist;
           this.cameraRadius = Math.min(
@@ -346,22 +418,23 @@ export class PlanetView {
           pinchStartDist = dist;
           this.updateCamera();
         }
-        if (this.interactionMode === "placement" && this.onTileRotate) {
-          let delta = angle - pinchStartAngle;
-          while (delta > Math.PI) delta -= Math.PI * 2;
-          while (delta < -Math.PI) delta += Math.PI * 2;
-          const bucket = Math.trunc(delta / (Math.PI / 6));
-          if (bucket !== lastTwistBucket) {
-            this.onTileRotate(bucket > lastTwistBucket ? 1 : -1);
-            lastTwistBucket = bucket;
-          }
-        }
       },
       { passive: false },
     );
     el.addEventListener("click", (e) => {
       if (this.moved) return;
       this.pick(e);
+    });
+    el.addEventListener("contextmenu", (e) => {
+      if (this.interactionMode !== "placement") return;
+      e.preventDefault();
+      this.updateHover(e);
+      if (
+        this.hoverCellId !== null &&
+        this.legalCellIds.has(this.hoverCellId)
+      ) {
+        this.onTileRotateRequest?.(1);
+      }
     });
 
     window.addEventListener("resize", () => {
@@ -375,6 +448,98 @@ export class PlanetView {
 
   setSpin(on: boolean): void {
     this.spin = on;
+  }
+
+  beginTileDrag(e: PointerEvent): void {
+    if (
+      this.interactionMode !== "placement" ||
+      this.pointerMode !== "idle" ||
+      this.legalCellIds.size === 0 ||
+      this.placementConnections.length === 0 ||
+      e.button !== 0
+    ) {
+      return;
+    }
+    this.pointerMode = "draggingTile";
+    this.tileDragPointerId = e.pointerId;
+    this.secondTouch = null;
+    this.focusQuat = null;
+    this.spinVel.set(0, 0, 0);
+    this.updateHover(e);
+    this.redrawTileDragGhost();
+  }
+
+  setPlacementPreview(connections: boolean[], rotation: number): void {
+    this.placementConnections = [...connections];
+    this.placementRotation = rotation;
+    if (this.pointerMode === "draggingTile") this.redrawTileDragGhost();
+  }
+
+  private finishTileDrag(e: PointerEvent): void {
+    this.updateHover(e);
+    const cellId = this.hoverCellId;
+    const canDrop = cellId !== null && this.legalCellIds.has(cellId);
+    const rotation = this.placementRotation;
+    this.cancelTileDrag();
+    if (canDrop) this.onTileDrop?.(cellId, rotation);
+  }
+
+  private cancelTileDrag(): void {
+    this.pointerMode = "idle";
+    this.tileDragPointerId = null;
+    this.secondTouch = null;
+    this.clearGroup(this.tileDragGhost);
+  }
+
+  private redrawTileDragGhost(): void {
+    this.clearGroup(this.tileDragGhost);
+    const cellId = this.hoverCellId;
+    if (
+      this.pointerMode !== "draggingTile" ||
+      cellId === null ||
+      !this.legalCellIds.has(cellId)
+    ) {
+      return;
+    }
+    const cell = this.lastCells.get(cellId);
+    if (!cell || cell.vertices.length < 3) return;
+    const sides = cell.vertices.length;
+    const rotation = ((this.placementRotation % sides) + sides) % sides;
+    const center = new THREE.Vector3(
+      cell.center.x,
+      cell.center.y,
+      cell.center.z,
+    ).multiplyScalar(1.012);
+    const positions: number[] = [];
+    for (let i = 0; i < sides; i++) {
+      const source = (i - rotation + sides) % sides;
+      if (!this.placementConnections[source]) continue;
+      const a = cell.vertices[i]!;
+      const b = cell.vertices[(i + 1) % sides]!;
+      const edge = new THREE.Vector3(
+        (a.x + b.x) * 0.5,
+        (a.y + b.y) * 0.5,
+        (a.z + b.z) * 0.5,
+      ).multiplyScalar(1.012);
+      positions.push(center.x, center.y, center.z, edge.x, edge.y, edge.z);
+    }
+    if (positions.length === 0) return;
+    const geometry = new THREE.BufferGeometry();
+    geometry.setAttribute(
+      "position",
+      new THREE.Float32BufferAttribute(positions, 3),
+    );
+    const ghost = new THREE.LineSegments(
+      geometry,
+      new THREE.LineBasicMaterial({
+        color: 0xffe566,
+        transparent: true,
+        opacity: 0.72,
+        depthTest: false,
+      }),
+    );
+    ghost.renderOrder = 20;
+    this.tileDragGhost.add(ghost);
   }
 
   /** Rotate the globe so drag follows the finger (trackball / free spin). */
@@ -502,8 +667,12 @@ export class PlanetView {
     this.cellCenters.clear();
     this.lastCells.clear();
     this.interactionMode = data.interactionMode ?? "other";
+    this.legalCellIds = new Set(
+      this.interactionMode === "placement" ? (data.legalCellIds ?? []) : [],
+    );
     if (this.interactionMode !== "placement") {
       this.selectedCell = null;
+      if (this.pointerMode === "draggingTile") this.cancelTileDrag();
     }
 
     const placedMap = new Map(data.placed.map((p) => [p.cellId, p]));
@@ -1245,7 +1414,7 @@ export class PlanetView {
     const dt = Math.min(0.05, (now - this.lastFrameMs) / 1000);
     this.lastFrameMs = now;
 
-    if (!this.drag) {
+    if (this.pointerMode === "idle") {
       if (this.focusQuat) {
         const k = 1 - Math.exp(-6 * dt);
         this.pivot.quaternion.slerp(this.focusQuat, k);
