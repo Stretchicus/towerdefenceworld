@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.49 — 2026-07-23
+
+### Changed
+
+- Tower build flow: select pad → BUILD bar (world + HUD) → modal tower choice → build
+- Build targets HUD no longer lists tower types/costs inline; unaffordable pads dim
+
 ## 0.1.48 — 2026-07-22
 
 ### Fixed

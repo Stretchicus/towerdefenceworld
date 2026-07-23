@@ -41,6 +41,8 @@ export interface PlanetViewData {
   /** When "ended", castles get fireworks (winners) or flames (losers). */
   phase?: string;
   winnerIds?: string[];
+  /** When false, empty tower pads render dimmed (no affordable tower). */
+  padsAffordable?: boolean;
 }
 
 const TEAM_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
@@ -180,6 +182,10 @@ export class PlanetView {
   private markersKey = "";
   private routesKey = "";
   private cellCenters = new Map<number, THREE.Vector3>();
+  private lastCells = new Map<number, CellView>();
+  private static readonly _proj = new THREE.Vector3();
+  private static readonly _out = new THREE.Vector3();
+  private static readonly _toCam = new THREE.Vector3();
   /** Gameplay sits on the hex surface — not the atmosphere shell */
   private static readonly SURFACE = 1.012;
   /** Must match vertex scale used when building cell meshes in setPlanet */
@@ -419,6 +425,40 @@ export class PlanetView {
     this.spin = false;
   }
 
+  /**
+   * Project a cell face point to viewport-local CSS pixels.
+   * `visible` is false when behind the globe or off the canvas.
+   */
+  projectCellToViewport(
+    cellId: number,
+    lift = 0.05,
+  ): { x: number; y: number; visible: boolean } | null {
+    const cell = this.lastCells.get(cellId);
+    if (!cell) return null;
+    const { pos, outward } = this.cellFacePose(cell, lift);
+    this.pivot.updateMatrixWorld(true);
+    PlanetView._proj.copy(pos).applyMatrix4(this.pivot.matrixWorld);
+    PlanetView._out.copy(outward).transformDirection(this.pivot.matrixWorld);
+    PlanetView._toCam
+      .copy(this.camera.position)
+      .sub(PlanetView._proj)
+      .normalize();
+    const facing = PlanetView._out.dot(PlanetView._toCam) > 0.12;
+    PlanetView._proj.project(this.camera);
+    const el = this.renderer.domElement;
+    const w = el.clientWidth;
+    const h = el.clientHeight;
+    const x = (PlanetView._proj.x * 0.5 + 0.5) * w;
+    const y = (-PlanetView._proj.y * 0.5 + 0.5) * h;
+    const onScreen =
+      PlanetView._proj.z < 1 &&
+      x > -40 &&
+      y > -40 &&
+      x < w + 40 &&
+      y < h + 40;
+    return { x, y, visible: facing && onScreen };
+  }
+
   private pick(e: MouseEvent): void {
     const id = this.rayCell(e);
     if (id === null) return;
@@ -448,6 +488,7 @@ export class PlanetView {
     this.clearGroup(this.root);
     this.cellMeshes.clear();
     this.cellCenters.clear();
+    this.lastCells.clear();
     this.interactionMode = data.interactionMode ?? "other";
     if (this.interactionMode !== "placement") {
       this.selectedCell = null;
@@ -538,6 +579,7 @@ export class PlanetView {
       this.root.add(mesh);
       this.cellMeshes.set(cell.id, mesh);
       this.cellCenters.set(cell.id, center.clone());
+      this.lastCells.set(cell.id, cell);
 
       const edgePos: number[] = [];
       for (let i = 0; i < verts.length; i++) {
@@ -753,6 +795,7 @@ export class PlanetView {
       data.myBaseCellId ?? "",
       data.phase ?? "",
       (data.winnerIds ?? []).join(","),
+      data.padsAffordable === false ? "0" : "1",
     ].join("|");
   }
 
@@ -779,6 +822,7 @@ export class PlanetView {
     this.endGameFx.clear();
 
     const cellMap = new Map(data.cells.map((c) => [c.id, c]));
+    for (const c of data.cells) this.lastCells.set(c.id, c);
     const ownerColor = new Map<string, string>();
     data.players.forEach((p, i) => {
       ownerColor.set(p.id, TEAM_COLORS[i % TEAM_COLORS.length]!);
@@ -786,6 +830,11 @@ export class PlanetView {
     const towerCells = new Set(data.towers.map((t) => t.cellId));
     const mineCells = new Set(data.mines.map((m) => m.cellId));
     const R = PlanetView.SURFACE;
+    const padsAffordable = data.padsAffordable !== false;
+    const padEmissive = padsAffordable ? 0.75 : 0.2;
+    const padRingEmissive = padsAffordable ? 1.15 : 0.25;
+    const padColor = padsAffordable ? 0x145050 : 0x0a2020;
+    const padRingColor = padsAffordable ? 0x7bffe8 : 0x2a5050;
 
     // Empty tower pads — raised cyan plinth + ring (must lie flat on the face)
     for (const placed of data.placed) {
@@ -796,11 +845,13 @@ export class PlanetView {
       const flatQuat = this.cellFlatQuat(outward);
 
       const plinthMat = new THREE.MeshStandardMaterial({
-        color: 0x145050,
+        color: padColor,
         emissive: 0x3dd6c6,
-        emissiveIntensity: 0.75,
+        emissiveIntensity: padEmissive,
         metalness: 0.2,
         roughness: 0.45,
+        transparent: !padsAffordable,
+        opacity: padsAffordable ? 1 : 0.45,
         polygonOffset: true,
         polygonOffsetFactor: -2,
         polygonOffsetUnits: -2,
@@ -817,11 +868,13 @@ export class PlanetView {
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(0.052, 0.01, 10, 28),
         new THREE.MeshStandardMaterial({
-          color: 0x7bffe8,
+          color: padRingColor,
           emissive: 0x3dd6c6,
-          emissiveIntensity: 1.15,
+          emissiveIntensity: padRingEmissive,
           metalness: 0.15,
           roughness: 0.35,
+          transparent: !padsAffordable,
+          opacity: padsAffordable ? 1 : 0.4,
           polygonOffset: true,
           polygonOffsetFactor: -3,
           polygonOffsetUnits: -3,
@@ -837,8 +890,10 @@ export class PlanetView {
         new THREE.MeshStandardMaterial({
           color: 0x0a2828,
           emissive: 0x1a6060,
-          emissiveIntensity: 0.85,
+          emissiveIntensity: padsAffordable ? 0.85 : 0.2,
           side: THREE.DoubleSide,
+          transparent: !padsAffordable,
+          opacity: padsAffordable ? 1 : 0.4,
           polygonOffset: true,
           polygonOffsetFactor: -2,
           polygonOffsetUnits: -2,

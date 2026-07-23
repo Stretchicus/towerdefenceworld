@@ -1,4 +1,5 @@
 import "./styles.css";
+import { BuildOverlay } from "./buildOverlay.js";
 import { GameSocket, type ServerMessage } from "./net.js";
 import { PlanetView, shadeBodColor, type PlanetViewData } from "./planetView.js";
 import {
@@ -108,7 +109,7 @@ interface MatchState {
   };
 }
 
-const CLIENT_BUILD = "v0.1.48";
+const CLIENT_BUILD = "v0.1.49";
 const FALLBACK_TOWER = { stone: 70, power: 55 };
 const PLAYER_COLORS = ["#3dd6c6", "#f0a05a", "#7aa2ff", "#e07ad8"];
 const TOWER_TYPE_COLORS: Record<string, string> = {
@@ -147,6 +148,20 @@ const healthBarTrack = document.getElementById(
 
 const socket = new GameSocket();
 const planet = new PlanetView(viewport);
+const buildOverlay = new BuildOverlay(viewport, () => {
+  if (selectedBuildCell === null || !lastMatch || lastMatch.phase !== "combat") {
+    return;
+  }
+  const self = me();
+  const loadout = myLoadout(lastMatch);
+  const anyAfford = loadout.some(
+    (t) => self && canAffordCost(self.bank, towerBuildCost(lastMatch!, t.id)),
+  );
+  if (!anyAfford) return;
+  showBuildPopup = true;
+  lastError = "";
+  paint();
+});
 
 let roomCode: string | null = localStorage.getItem("tdw_room");
 let token: string | null = localStorage.getItem("tdw_token");
@@ -157,7 +172,7 @@ let lastError = "";
 let planetBuiltFor = "";
 let hudShellKey = "";
 let selectedBuildCell: number | null = null;
-let showTypePicker = false;
+let showBuildPopup = false;
 let placementRotation = 0;
 let hoverCellId: number | null = null;
 let workshop: WorkshopState | null = null;
@@ -194,7 +209,7 @@ function resetToMenu(): void {
   planetBuiltFor = "";
   hudShellKey = "";
   selectedBuildCell = null;
-  showTypePicker = false;
+  showBuildPopup = false;
   workshop = null;
   workshopSyncKey = "";
   if (pushLoadoutTimer) {
@@ -242,6 +257,45 @@ function freeTowerPads(m: MatchState): number[] {
   return m.placed
     .filter((p) => p.tile.hasTowerPoint && !occupied.has(p.cellId))
     .map((p) => p.cellId);
+}
+
+function anyTowerAffordable(m: MatchState): boolean {
+  const self = me();
+  if (!self) return false;
+  return myLoadout(m).some((t) =>
+    canAffordCost(self.bank, towerBuildCost(m, t.id)),
+  );
+}
+
+function selectBuildPad(cellId: number): void {
+  if (selectedBuildCell === cellId) {
+    selectedBuildCell = null;
+    showBuildPopup = false;
+  } else {
+    selectedBuildCell = cellId;
+    showBuildPopup = false;
+    lastError = "";
+    planet.focusCell(cellId);
+  }
+  paint();
+}
+
+function clearBuildSelection(): void {
+  selectedBuildCell = null;
+  showBuildPopup = false;
+  paint();
+}
+
+function closeBuildPopup(): void {
+  showBuildPopup = false;
+  paint();
+}
+
+function openBuildPopup(): void {
+  if (selectedBuildCell === null || !lastMatch) return;
+  if (!anyTowerAffordable(lastMatch)) return;
+  showBuildPopup = true;
+  paint();
 }
 
 function myLoadout(m?: MatchState | null): TowerDef[] {
@@ -679,15 +733,24 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
     });
   });
   hud.querySelectorAll("[data-build]").forEach((btn) => {
-    btn.addEventListener("click", () => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
       const cellId = Number((btn as HTMLElement).dataset.build);
       if (!Number.isFinite(cellId) || !lastMatch) return;
-      selectedBuildCell = cellId;
-      showTypePicker = true;
-      lastError = "";
-      planet.focusCell(cellId);
-      paint();
+      selectBuildPad(cellId);
     });
+  });
+  hud.querySelectorAll("[data-hud-build]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.stopPropagation();
+      openBuildPopup();
+    });
+  });
+  document.getElementById("build-modal-backdrop")?.addEventListener("click", () => {
+    closeBuildPopup();
+  });
+  document.getElementById("btn-build-cancel")?.addEventListener("click", () => {
+    closeBuildPopup();
   });
   hud.querySelectorAll("[data-build-type]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -700,8 +763,9 @@ function bindMatchHudHandlers(self: ReturnType<typeof me>): void {
         cellId: selectedBuildCell,
         typeId,
       });
-      showTypePicker = false;
+      showBuildPopup = false;
       selectedBuildCell = null;
+      paint();
     });
   });
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
@@ -768,48 +832,54 @@ function patchMatchLive(m: MatchState, self: ReturnType<typeof me>): void {
   hud.querySelectorAll("[data-build]").forEach((btn) => {
     const el = btn as HTMLButtonElement;
     const cellId = Number(el.dataset.build);
-    el.classList.toggle("selected", selectedBuildCell === cellId);
+    const selected = selectedBuildCell === cellId;
+    el.classList.toggle("selected", selected);
     el.classList.toggle("cant-afford", !anyAfford);
-    el.classList.toggle(
-      "ready-build",
-      selectedBuildCell === cellId && (showTypePicker || anyAfford),
+    el.classList.toggle("has-build-bar", selected && anyAfford);
+  });
+  const hudBuildBars = hud.querySelectorAll("[data-hud-build]");
+  hudBuildBars.forEach((btn) => {
+    (btn as HTMLElement).hidden = !(
+      selectedBuildCell !== null &&
+      anyAfford &&
+      m.phase === "combat" &&
+      Number((btn as HTMLElement).dataset.hudBuild) === selectedBuildCell
     );
   });
-  const padHint = document.getElementById("pad-hint");
-  if (padHint) {
-    if (selectedBuildCell === null) {
-      padHint.textContent = "Tap a free pad to choose a tower type";
-    } else {
-      padHint.textContent = `Pad #${selectedBuildCell} — pick a tower type`;
-    }
+  const modal = document.getElementById("build-modal");
+  if (modal && !showBuildPopup) {
+    modal.hidden = true;
   }
-  const typePicker = document.getElementById("type-picker");
-  if (typePicker && self) {
-    typePicker.innerHTML = loadout
-      .map((t) => {
-        const cost = towerBuildCost(m, t.id);
-        const afford = canAffordCost(self.bank, cost);
-        const color = TOWER_TYPE_COLORS[t.id] ?? "#9ab";
-        return `<button type="button" class="build-btn type-chip ${afford ? "" : "cant-afford"}" data-build-type="${t.id}" ${afford && showTypePicker ? "" : "disabled"} style="--type-color:${color}">
-          <span class="btn-label">${towerVisualIconHtml(t.visualId)} ${t.id} · p${t.power} r${t.range}</span>
-          <span class="cost-row">${costChipsHtml(cost, afford)}</span>
-        </button>`;
-      })
-      .join("");
-    typePicker.querySelectorAll("[data-build-type]").forEach((btn) => {
-      btn.addEventListener("click", () => {
-        if ((btn as HTMLButtonElement).disabled) return;
-        const typeId = (btn as HTMLElement).dataset.buildType!;
-        if (selectedBuildCell === null) return;
-        socket.send({
-          type: "buildTower",
-          cellId: selectedBuildCell,
-          typeId,
+  if (showBuildPopup && self) {
+    const list = document.getElementById("build-modal-list");
+    if (list) {
+      list.innerHTML = loadout
+        .map((t) => {
+          const cost = towerBuildCost(m, t.id);
+          const afford = canAffordCost(self.bank, cost);
+          const color = TOWER_TYPE_COLORS[t.id] ?? "#9ab";
+          return `<button type="button" class="build-btn type-chip ${afford ? "" : "cant-afford"}" data-build-type="${t.id}" ${afford ? "" : "disabled"} style="--type-color:${color}">
+            <span class="btn-label">${towerVisualIconHtml(t.visualId)} ${t.id} · p${t.power} r${t.range}</span>
+            <span class="cost-row">${costChipsHtml(cost, afford)}</span>
+          </button>`;
+        })
+        .join("");
+      list.querySelectorAll("[data-build-type]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          if ((btn as HTMLButtonElement).disabled) return;
+          const typeId = (btn as HTMLElement).dataset.buildType!;
+          if (selectedBuildCell === null) return;
+          socket.send({
+            type: "buildTower",
+            cellId: selectedBuildCell,
+            typeId,
+          });
+          showBuildPopup = false;
+          selectedBuildCell = null;
+          paint();
         });
-        showTypePicker = false;
-        selectedBuildCell = null;
       });
-    });
+    }
   }
   hud.querySelectorAll("[data-up-tower]").forEach((btn) => {
     const el = btn as HTMLButtonElement;
@@ -885,7 +955,7 @@ function renderMatch(): void {
   const pads = freeTowerPads(m);
   if (selectedBuildCell !== null && !pads.includes(selectedBuildCell)) {
     selectedBuildCell = null;
-    showTypePicker = false;
+    showBuildPopup = false;
   }
   const myTowers = m.towers.filter((t) => t.ownerId === playerId);
 
@@ -919,8 +989,9 @@ function renderMatch(): void {
       .join(","),
     m.winnerIds.join(","),
     selectedBuildCell ?? "",
-    showTypePicker ? "1" : "0",
+    showBuildPopup ? "1" : "0",
     loadout.map((t) => t.id).join(","),
+    anyAfford ? "1" : "0",
   ].join("|");
 
   if (shellKey === hudShellKey && hud.querySelector(".side-left")) {
@@ -968,46 +1039,55 @@ function renderMatch(): void {
           .join("")
       : "";
 
-    const typePickerHtml =
-      showTypePicker && selectedBuildCell !== null
-        ? `<div class="type-picker" id="type-picker">
-            ${loadout
-              .map((t) => {
-                const cost = towerBuildCost(m, t.id);
-                const afford = self
-                  ? canAffordCost(self.bank, cost)
-                  : false;
-                const color = TOWER_TYPE_COLORS[t.id] ?? "#9ab";
-                return `<button type="button" class="build-btn type-chip ${afford ? "" : "cant-afford"}" data-build-type="${t.id}" ${afford ? "" : "disabled"} style="--type-color:${color}">
-                  <span class="btn-label">${towerVisualIconHtml(t.visualId)} ${t.id} · p${t.power} r${t.range}</span>
-                  <span class="cost-row">${costChipsHtml(cost, afford)}</span>
-                </button>`;
-              })
-              .join("")}
+    const buildModalHtml =
+      showBuildPopup && selectedBuildCell !== null
+        ? `<div class="build-modal" id="build-modal" role="dialog" aria-modal="true" aria-labelledby="build-modal-title">
+            <div class="build-modal-backdrop" id="build-modal-backdrop"></div>
+            <div class="build-modal-card">
+              <h3 id="build-modal-title">Build on pad #${selectedBuildCell}</h3>
+              <div class="type-picker" id="build-modal-list">
+                ${loadout
+                  .map((t) => {
+                    const cost = towerBuildCost(m, t.id);
+                    const afford = self
+                      ? canAffordCost(self.bank, cost)
+                      : false;
+                    const color = TOWER_TYPE_COLORS[t.id] ?? "#9ab";
+                    return `<button type="button" class="build-btn type-chip ${afford ? "" : "cant-afford"}" data-build-type="${t.id}" ${afford ? "" : "disabled"} style="--type-color:${color}">
+                      <span class="btn-label">${towerVisualIconHtml(t.visualId)} ${t.id} · p${t.power} r${t.range}</span>
+                      <span class="cost-row">${costChipsHtml(cost, afford)}</span>
+                    </button>`;
+                  })
+                  .join("")}
+              </div>
+              <button type="button" id="btn-build-cancel" class="secondary">Cancel</button>
+            </div>
           </div>`
-        : `<div class="type-picker" id="type-picker" hidden></div>`;
+        : `<div class="build-modal" id="build-modal" hidden></div>`;
 
     const buildList =
       m.phase === "combat"
-        ? `<h2>BUILD TOWER</h2>
-      <p class="hint" id="pad-hint">${
-        selectedBuildCell === null
-          ? "Tap a free pad to choose a tower type"
-          : `Pad #${selectedBuildCell} — pick a tower type`
-      }</p>
-      ${typePickerHtml}
+        ? `<h2>BUILD TARGETS</h2>
       <div class="pad-rail" id="pad-rail">
         ${
           pads.length === 0
             ? `<p class="hint">No free pads left.</p>`
             : pads
-                .map(
-                  (cellId) =>
-                    `<button type="button" class="pad-disc ${selectedBuildCell === cellId ? "selected" : ""} ${anyAfford ? "" : "cant-afford"} ${selectedBuildCell === cellId && showTypePicker ? "ready-build" : ""}" data-build="${cellId}" title="Pad #${cellId}" aria-label="Pad ${cellId}">
-                      <span class="pad-disc-glow"></span>
-                      <span class="pad-disc-id">${cellId}</span>
-                    </button>`,
-                )
+                .map((cellId) => {
+                  const selected = selectedBuildCell === cellId;
+                  const showBar = selected && anyAfford;
+                  return `<div class="pad-target ${selected ? "selected" : ""} ${anyAfford ? "" : "cant-afford"}">
+                      <button type="button" class="pad-disc ${selected ? "selected" : ""} ${anyAfford ? "" : "cant-afford"} ${showBar ? "has-build-bar" : ""}" data-build="${cellId}" title="Pad #${cellId}" aria-label="Pad ${cellId}">
+                        <span class="pad-disc-glow"></span>
+                        <span class="pad-disc-id">${cellId}</span>
+                      </button>
+                      ${
+                        showBar
+                          ? `<button type="button" class="hud-build-bar" data-hud-build="${cellId}" aria-label="Build on pad ${cellId}"><span class="build-bar-label">BUILD</span></button>`
+                          : ""
+                      }
+                    </div>`;
+                })
                 .join("")
         }
       </div>
@@ -1112,6 +1192,7 @@ function renderMatch(): void {
           : ""
       }
     </div>
+    ${buildModalHtml}
   `;
 
     bindMatchHudHandlers(self);
@@ -1144,6 +1225,7 @@ function renderMatch(): void {
           : "other",
     phase: m.phase,
     winnerIds: m.winnerIds ?? [],
+    padsAffordable: anyAfford,
   };
   const planetKey = `${m.planet.cells.length}:${m.phase}:${myTurn ? legalCellIds.join(",") : ""}:${self?.baseCellId ?? ""}`;
   if (planetBuiltFor !== planetKey) {
@@ -1171,11 +1253,7 @@ planet.onCellClick = (cellId) => {
     const placed = lastMatch.placed.find((p) => p.cellId === cellId);
     const hasTower = lastMatch.towers.some((t) => t.cellId === cellId);
     if (placed?.tile.hasTowerPoint && !hasTower) {
-      selectedBuildCell = cellId;
-      showTypePicker = true;
-      lastError = "";
-      planet.focusCell(cellId);
-      paint();
+      selectBuildPad(cellId);
       return;
     }
     if (
@@ -1183,6 +1261,11 @@ planet.onCellClick = (cellId) => {
       !lastMatch.mines.some((x) => x.cellId === cellId)
     ) {
       socket.send({ type: "claimMine", cellId });
+      return;
+    }
+    // Empty / non-pad ground clears build selection
+    if (selectedBuildCell !== null) {
+      clearBuildSelection();
     }
   }
 };
@@ -1293,6 +1376,28 @@ paint();
 
 function loop(): void {
   planet.render();
+  syncWorldBuildOverlay();
   requestAnimationFrame(loop);
 }
+
+function syncWorldBuildOverlay(): void {
+  const m = lastMatch;
+  if (
+    !m ||
+    m.phase !== "combat" ||
+    selectedBuildCell === null ||
+    showBuildPopup ||
+    !anyTowerAffordable(m)
+  ) {
+    buildOverlay.hide();
+    return;
+  }
+  const proj = planet.projectCellToViewport(selectedBuildCell, 0.055);
+  if (!proj || !proj.visible) {
+    buildOverlay.hide();
+    return;
+  }
+  buildOverlay.update({ visible: true, x: proj.x, y: proj.y });
+}
+
 loop();
