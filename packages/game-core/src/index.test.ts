@@ -461,6 +461,108 @@ describe("placement", () => {
     ]);
   });
 
+  function pocketPokeFixture(): {
+    state: ReturnType<typeof createPlacementState>;
+    candidateId: number;
+    pokeTile: ReturnType<typeof makeTile>;
+  } {
+    const playable = [
+      { q: 0, r: 0 },
+      { q: 1, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+      { q: -1, r: 0 },
+      { q: -1, r: 1 },
+      { q: 0, r: 1 },
+      { q: 1, r: 1 },
+    ];
+    const planet = buildFlatHexPlanet(playable);
+    const centerId = 0;
+    const candidateId = 6;
+    const attachId = 7;
+    const closed = makeTile("closed", [false, false, false, false, false, false]);
+    const placed = new Map<number, import("./types.js").PlacedTile>();
+    for (const id of [1, 2, 3, 4, 5]) {
+      placed.set(id, {
+        cellId: id,
+        tile: closed,
+        rotation: 0,
+        connections: [false, false, false, false, false, false],
+      });
+    }
+    const attachEdge = planet.cells[attachId]!.neighbors.indexOf(candidateId);
+    assert.notEqual(attachEdge, -1);
+    const attachConnections = [false, false, false, false, false, false];
+    attachConnections[attachEdge] = true;
+    placed.set(attachId, {
+      cellId: attachId,
+      tile: makeTile("attach-stub", [false, false, false, false, false, false]),
+      rotation: 0,
+      connections: attachConnections,
+    });
+    const state = createPlacementState(planet);
+    state.placed = placed;
+    state.baseCellIds = [];
+    const pokeEdge = planet.cells[candidateId]!.neighbors.indexOf(centerId);
+    const attachToCandidate =
+      planet.cells[candidateId]!.neighbors.indexOf(attachId);
+    assert.notEqual(pokeEdge, -1);
+    assert.notEqual(attachToCandidate, -1);
+    const pokeConnections = [false, false, false, false, false, false];
+    pokeConnections[pokeEdge] = true;
+    pokeConnections[attachToCandidate] = true;
+    const pokeTile = makeTile("poke", pokeConnections);
+    return { state, candidateId, pokeTile };
+  }
+
+  it("uses finishability: forward straight on open tip legal, pocket poke illegal", () => {
+    const planet = buildPlanet("small", 2);
+    const placement = createPlacementState(planet, createRng(1));
+    const straight = makeTile("straight", [true, false, false, true, false, false]);
+    const end = listOpenEnds(placement)[0]!;
+    const endCell = planet.cells[end.cellId]!;
+    let legalStraight = false;
+    for (let r = 0; r < endCell.sides; r++) {
+      if (isLegalPlacement(placement, end.cellId, straight, r)) {
+        legalStraight = true;
+        break;
+      }
+    }
+    assert.ok(legalStraight, "forward straight on open tip should remain legal");
+
+    const { state, candidateId, pokeTile } = pocketPokeFixture();
+    const before = listOpenEnds(state).length;
+    assert.equal(
+      listOpenEnds(state).some((e) => e.cellId === candidateId),
+      true,
+      "candidate must be an open route end",
+    );
+    const cell = state.planet.cells[candidateId]!;
+    const connections = pokeTile.connections.slice(0, cell.sides);
+    const placed = new Map(state.placed);
+    placed.set(candidateId, {
+      cellId: candidateId,
+      tile: pokeTile,
+      rotation: 0,
+      connections,
+    });
+    const after = listOpenEnds({ ...state, placed }).length;
+    assert.ok(
+      after <= before,
+      "pocket poke fixture must not increase open-end count",
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(state, candidateId, connections),
+      false,
+      "poke into sealed pocket must fail finishability",
+    );
+    assert.equal(
+      isLegalPlacement(state, candidateId, pokeTile, 0),
+      false,
+      "pocket poke must be illegal even when stub count does not increase",
+    );
+  });
+
   it("samples only tiles with a legal placement", () => {
     for (let seed = 1; seed <= 30; seed++) {
       const planet = buildPlanet("small", 2);
@@ -480,14 +582,13 @@ describe("placement", () => {
     }
   });
 
-  it("offers a 3-seat split early only when a non-increasing placement exists", () => {
+  it("offers a 3-seat split early only when a legal split placement exists", () => {
     for (let seed = 1; seed <= 20; seed++) {
       const planet = buildPlanet("small", 3);
       const rng = createRng(seed);
       const state = createPlacementState(planet, rng);
       let forcedSplitRemaining = 1;
       for (let placed = 0; placed < 3; placed++) {
-        const beforeEnds = listOpenEnds(state).length;
         const splitLegal = findLegalPlacements(
           state,
           makeTile("probe-split", shapeConnections("split")),
@@ -518,47 +619,10 @@ describe("placement", () => {
         assert.ok(legal.length > 0, `seed ${seed}, offer ${placed}`);
         const choice = legal[Math.floor(rng() * legal.length)]!;
         assert.equal(placeTile(state, choice.cellId, tile, choice.rotation), true);
-        assert.ok(
-          listOpenEnds(state).length <= beforeEnds,
-          `seed ${seed}: placement must not increase open ends`,
-        );
       }
     }
   });
 
-  it("placements that increase open ends are always illegal", () => {
-    const planet = buildPlanet("small", 2);
-    const placement = createPlacementState(planet, createRng(5));
-    const before = listOpenEnds(placement).length;
-    assert.ok(before >= 2);
-    const split = makeTile("early-split", shapeConnections("split"));
-    let sawIncreasing = false;
-    for (const end of listOpenEnds(placement)) {
-      const cell = planet.cells[end.cellId]!;
-      for (let r = 0; r < cell.sides; r++) {
-        const connections = split.connections.slice(0, cell.sides).map((_, i) => {
-          return split.connections[(i - r + cell.sides) % cell.sides] ?? false;
-        });
-        while (connections.length < cell.sides) connections.push(false);
-        const placed = new Map(placement.placed);
-        placed.set(end.cellId, {
-          cellId: end.cellId,
-          tile: split,
-          rotation: r,
-          connections,
-        });
-        const after = listOpenEnds({ ...placement, placed }).length;
-        if (after <= before) continue;
-        sawIncreasing = true;
-        assert.equal(
-          isLegalPlacement(placement, end.cellId, split, r),
-          false,
-          `must reject open-end increase at ${end.cellId} rot ${r}`,
-        );
-      }
-    }
-    assert.ok(sawIncreasing, "expected at least one increasing split rotation on day-1 stubs");
-  });
   it("does not sample splits in the first 2-seat round", () => {
     for (let seed = 1; seed <= 20; seed++) {
       const planet = buildPlanet("small", 2);
@@ -724,7 +788,7 @@ describe("placement", () => {
     assert.equal(match.phase, "combat");
   });
 
-  it("3-seat early offers never increase open ends", () => {
+  it("3-seat early offers only place finishable tiles", () => {
     const match = createMatch({
       id: "forced-split",
       seed: 1,
@@ -744,14 +808,19 @@ describe("placement", () => {
     });
 
     for (let turn = 0; turn < 3 && match.phase === "placement"; turn++) {
-      const before = listOpenEnds(match.placement).length;
       const offer = currentTile(match);
       assert.ok(offer);
+      const legalBefore = findLegalPlacements(match.placement, offer);
       for (let pulse = 0; pulse < 12; pulse++) runAiPlacement(match);
-      assert.ok(
-        listOpenEnds(match.placement).length <= before,
-        `turn ${turn} increased open ends`,
-      );
+      if (match.phase !== "placement") break;
+      const offerAfter = currentTile(match);
+      if (offerAfter) {
+        assert.ok(
+          findLegalPlacements(match.placement, offerAfter).length > 0,
+          `turn ${turn} must keep finishable offers`,
+        );
+      }
+      assert.ok(legalBefore.length > 0, `turn ${turn} placed from legal options`);
     }
   });
 
@@ -789,7 +858,7 @@ describe("placement", () => {
     assert.equal(match.currentOffer, null);
   });
 
-  it("legal placements never increase open-end count after connect", () => {
+  it("legal placements always satisfy finishability", () => {
     const planet = buildPlanet("small", 2);
     const placement = createPlacementState(planet, createRng(2));
     let guard = 0;
@@ -809,9 +878,7 @@ describe("placement", () => {
       placeTile(placement, legal[0]!.cellId, tile, legal[0]!.rotation);
     }
     assert.ok(basesConnected(placement), "expected connected board");
-    if (listOpenEnds(placement).length === 0) return;
 
-    const before = listOpenEnds(placement).length;
     const split = makeTile("cleanup-split", shapeConnections("split"));
     for (const opt of findLegalPlacements(placement, split)) {
       const cell = planet.cells[opt.cellId]!;
@@ -821,16 +888,10 @@ describe("placement", () => {
         );
       });
       while (connections.length < cell.sides) connections.push(false);
-      const placed = new Map(placement.placed);
-      placed.set(opt.cellId, {
-        cellId: opt.cellId,
-        tile: split,
-        rotation: opt.rotation,
-        connections,
-      });
-      assert.ok(
-        listOpenEnds({ ...placement, placed }).length <= before,
-        "legal placement must not increase open ends",
+      assert.equal(
+        connectionsSatisfyFinishability(placement, opt.cellId, connections),
+        true,
+        `legal placement at ${opt.cellId} rot ${opt.rotation} must satisfy finishability`,
       );
     }
   });

@@ -1,4 +1,5 @@
 import { bridgeTileTemplate, makeTile, rotateConnections } from "./bag.js";
+import { connectionsSatisfyFinishability } from "./finishability.js";
 import { listOpenEnds } from "./openEnds.js";
 import type {
   Planet,
@@ -109,10 +110,7 @@ export function isLegalPlacement(
 
   if (!touchesRoute) return false;
 
-  // Never grow dangling stubs: open-end count must not increase.
-  const before = listOpenEnds(state).length;
-  const after = openEndCountWithCandidate(state, cellId, candidate);
-  if (after > before) return false;
+  if (!connectionsSatisfyFinishability(state, cellId, connections)) return false;
 
   return true;
 }

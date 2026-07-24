@@ -1,4 +1,5 @@
 import type { PlacementState } from "./placement.js";
+import { listOpenEnds } from "./openEnds.js";
 
 export type EdgeKind = "required" | "forbidden" | "optional";
 
@@ -88,13 +89,37 @@ function stubEdgesForComponent(
   return stubs;
 }
 
+function isFrontierOpenEnd(
+  cellId: number,
+  state: PlacementState,
+  candidateCellId: number,
+  boundaryId: number | null,
+): boolean {
+  const cell = state.planet.cells[cellId];
+  if (!cell) return false;
+  for (const neighbor of cell.neighbors) {
+    if (neighbor === candidateCellId) continue;
+    if (boundaryId !== null && neighbor === boundaryId) continue;
+    if (!state.placed.has(neighbor) && state.planet.cells[neighbor]) return true;
+  }
+  return false;
+}
+
 export function pocketsAfterPlacing(
   state: PlacementState,
   candidateCellId: number,
 ): Pocket[] {
   const boundaryId = boundaryCellId(state);
+  const openEndCellIds = new Set(
+    listOpenEnds(state)
+      .map((end) => end.cellId)
+      .filter((cellId) =>
+        isFrontierOpenEnd(cellId, state, candidateCellId, boundaryId),
+      ),
+  );
   const isEmptyFn = (cellId: number) =>
-    isEmpty(cellId, state, candidateCellId, boundaryId);
+    isEmpty(cellId, state, candidateCellId, boundaryId) &&
+    !openEndCellIds.has(cellId);
 
   const visited = new Set<number>();
   const pockets: Pocket[] = [];
