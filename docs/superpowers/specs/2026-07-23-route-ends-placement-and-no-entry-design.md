@@ -40,7 +40,7 @@ Out of scope: redesigning mines/tower pads beyond attaching them to generated ti
 - Tiles may only be placed on an **open route end** (empty cell adjacent to an open road stub of the growing network).
 - On your turn you may place on **any** open end (shared network building).
 - Edge matching: the attaching edge must be open against the stub; other edges must be consistent with already-placed neighbours (mutual opens or mutual closes). Closed edges against empty cells become new open stubs (new ends) when they face empty land.
-- **Open-end conservation (always):** a placement is illegal if it would **increase** the number of open stubs. Straights/bends that replace one stub with one new stub are fine; a split/cross is only legal when it attaches in a way that does not grow the stub count (typically merging multiple ends).
+- **Finishability (see `2026-07-24-finishable-placement-legality-design.md`):** a placement is illegal if it creates a road obligation that can only ever end as an open/dead stub (pocket/mesh rules: required / forbidden / constrained-optional edges). This **replaces** the interim “never increase open-stub count” rule.
 
 ### Tile shapes
 
