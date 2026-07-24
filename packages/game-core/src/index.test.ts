@@ -288,6 +288,419 @@ describe("pocket detection", () => {
   });
 });
 
+describe("finishability examples", () => {
+  type FlatCoord = { q: number; r: number };
+  type TestPlacementState = ReturnType<typeof createPlacementState>;
+
+  function key(coord: FlatCoord): string {
+    return `${coord.q},${coord.r}`;
+  }
+
+  function setupFlatExample(playable: FlatCoord[]): {
+    state: TestPlacementState;
+    id: (coord: FlatCoord) => number;
+  } {
+    const planet = buildFlatHexPlanet(playable);
+    assert.equal(flatHexBoundaryId(playable.length), playable.length);
+    const ids = new Map(playable.map((coord, id) => [key(coord), id]));
+    const state = createPlacementState(planet);
+    state.placed = new Map();
+    state.baseCellIds = [];
+    return {
+      state,
+      id: (coord) => {
+        const cellId = ids.get(key(coord));
+        assert.notEqual(cellId, undefined, `${key(coord)} must be playable`);
+        return cellId!;
+      },
+    };
+  }
+
+  function edgeBetween(
+    state: TestPlacementState,
+    fromCellId: number,
+    toCellId: number,
+  ): number {
+    const edge = state.planet.cells[fromCellId]!.neighbors.indexOf(toCellId);
+    assert.notEqual(edge, -1, `${fromCellId} must neighbor ${toCellId}`);
+    return edge;
+  }
+
+  function connectionsForEdges(
+    state: TestPlacementState,
+    cellId: number,
+    edges: number[],
+  ): boolean[] {
+    const connections = Array(state.planet.cells[cellId]!.sides).fill(false);
+    for (const edge of edges) connections[edge] = true;
+    return connections;
+  }
+
+  function placeWithOpenTargets(
+    state: TestPlacementState,
+    cellId: number,
+    targetCellIds: number[],
+  ): void {
+    const connections = connectionsForEdges(
+      state,
+      cellId,
+      targetCellIds.map((targetCellId) => edgeBetween(state, cellId, targetCellId)),
+    );
+    state.placed.set(cellId, {
+      cellId,
+      tile: makeTile(`placed-${cellId}`, connections),
+      rotation: 0,
+      connections,
+    });
+  }
+
+  function placeClosed(state: TestPlacementState, cellId: number): void {
+    placeWithOpenTargets(state, cellId, []);
+  }
+
+  function expectEdgeKinds(
+    state: TestPlacementState,
+    candidateId: number,
+    expected: Partial<Record<number, "required" | "forbidden" | "optional">>,
+  ): void {
+    const constraints = classifyCandidateEdges(state, candidateId);
+    for (const [edgeText, kind] of Object.entries(expected)) {
+      const edge = Number(edgeText);
+      assert.equal(constraints[edge]!.kind, kind, `edge ${edge}`);
+    }
+  }
+
+  function expectPlacementMask(
+    state: TestPlacementState,
+    candidateId: number,
+    openEdges: number[],
+    expected: boolean,
+    message: string,
+  ): void {
+    const connections = connectionsForEdges(state, candidateId, openEdges);
+    const tile = makeTile(`candidate-${message}`, connections);
+    assert.equal(
+      connectionsSatisfyFinishability(state, candidateId, connections),
+      expected,
+      `${message}: finishability`,
+    );
+    assert.equal(
+      isLegalPlacement(state, candidateId, tile, 0),
+      expected,
+      `${message}: placement legality`,
+    );
+  }
+
+  function throughLineWithOneCellPocket(withInternalStub: boolean): {
+    state: TestPlacementState;
+    candidateId: number;
+  } {
+    const { state, id } = setupFlatExample([
+      { q: 0, r: 0 },
+      { q: 1, r: -1 },
+      { q: 1, r: 0 },
+      { q: -1, r: 0 },
+    ]);
+    const candidateId = id({ q: 0, r: 0 });
+    const pocketId = id({ q: 1, r: -1 });
+    const eastId = id({ q: 1, r: 0 });
+    const westId = id({ q: -1, r: 0 });
+
+    placeWithOpenTargets(
+      state,
+      eastId,
+      withInternalStub ? [candidateId, pocketId] : [candidateId],
+    );
+    placeWithOpenTargets(state, westId, [candidateId]);
+    return { state, candidateId };
+  }
+
+  it("example 1 requires a 3-way when closing a pocket with an internal stub", () => {
+    const { state, candidateId } = throughLineWithOneCellPocket(true);
+
+    expectEdgeKinds(state, candidateId, {
+      0: "required",
+      1: "required",
+      2: "forbidden",
+      3: "required",
+      4: "forbidden",
+      5: "forbidden",
+    });
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 3],
+      true,
+      "example 1 required 3-way",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 3],
+      false,
+      "example 1 missing pocket join",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 2, 3],
+      false,
+      "example 1 forbidden extra leg",
+    );
+  });
+
+  it("example 2 forbids poking into a sealed one-cell empty pocket", () => {
+    const { state, candidateId } = throughLineWithOneCellPocket(false);
+
+    expectEdgeKinds(state, candidateId, {
+      0: "required",
+      1: "forbidden",
+      2: "forbidden",
+      3: "required",
+      4: "forbidden",
+      5: "forbidden",
+    });
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 3],
+      true,
+      "example 2 through-line only",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 3],
+      false,
+      "example 2 pocket poke",
+    );
+  });
+
+  it("example 3 requires all dense-mesh stubs and forbids red legs", () => {
+    const { state, id } = setupFlatExample([
+      { q: 0, r: 0 },
+      { q: 1, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+      { q: -1, r: 0 },
+      { q: -1, r: 1 },
+      { q: 0, r: 1 },
+    ]);
+    const candidateId = id({ q: 0, r: 0 });
+    const requiredNeighborCoords = [
+      { q: 1, r: 0 },
+      { q: 1, r: -1 },
+      { q: -1, r: 0 },
+      { q: -1, r: 1 },
+    ];
+    for (const coord of requiredNeighborCoords) {
+      placeWithOpenTargets(state, id(coord), [candidateId]);
+    }
+    for (const coord of [
+      { q: 0, r: -1 },
+      { q: 0, r: 1 },
+    ]) {
+      placeClosed(state, id(coord));
+    }
+
+    expectEdgeKinds(state, candidateId, {
+      0: "required",
+      1: "required",
+      2: "forbidden",
+      3: "required",
+      4: "required",
+      5: "forbidden",
+    });
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 3, 4],
+      true,
+      "example 3 all blue legs",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 3],
+      false,
+      "example 3 missing mesh stub",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 2, 3, 4],
+      false,
+      "example 3 red leg open",
+    );
+  });
+
+  it("example 4 requires the simpler mesh subset and forbids other mesh opens", () => {
+    const { state, id } = setupFlatExample([
+      { q: 0, r: 0 },
+      { q: 1, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+      { q: -1, r: 0 },
+      { q: -1, r: 1 },
+      { q: 0, r: 1 },
+    ]);
+    const candidateId = id({ q: 0, r: 0 });
+    for (const coord of [
+      { q: 1, r: 0 },
+      { q: -1, r: 0 },
+    ]) {
+      placeWithOpenTargets(state, id(coord), [candidateId]);
+    }
+    for (const coord of [
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+      { q: -1, r: 1 },
+      { q: 0, r: 1 },
+    ]) {
+      placeClosed(state, id(coord));
+    }
+
+    expectEdgeKinds(state, candidateId, {
+      0: "required",
+      1: "forbidden",
+      2: "forbidden",
+      3: "required",
+      4: "forbidden",
+      5: "forbidden",
+    });
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 3],
+      true,
+      "example 4 blue subset",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0],
+      false,
+      "example 4 missing required leg",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 3],
+      false,
+      "example 4 forbidden mesh-facing leg",
+    );
+  });
+
+  it("example 5 requires a through-line and allows pocket greens both or neither", () => {
+    const { state, id } = setupFlatExample([
+      { q: 0, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+      { q: 1, r: 0 },
+      { q: -1, r: 0 },
+    ]);
+    const candidateId = id({ q: 0, r: 0 });
+    placeWithOpenTargets(state, id({ q: 1, r: 0 }), [candidateId]);
+    placeWithOpenTargets(state, id({ q: -1, r: 0 }), [candidateId]);
+
+    const constraints = classifyCandidateEdges(state, candidateId);
+    expectEdgeKinds(state, candidateId, {
+      0: "required",
+      1: "optional",
+      2: "optional",
+      3: "required",
+      4: "forbidden",
+      5: "forbidden",
+    });
+    assert.equal(constraints[1]!.groupId, constraints[2]!.groupId);
+    assert.match(constraints[1]!.groupId ?? "", /^pocket-/);
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 3],
+      true,
+      "example 5 greens neither",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 2, 3],
+      true,
+      "example 5 greens both",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 3],
+      false,
+      "example 5 one green orphan",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 3, 4],
+      false,
+      "example 5 southern forbidden",
+    );
+  });
+
+  it("example 6 requires C and at least one continuation green", () => {
+    const { state, id } = setupFlatExample([
+      { q: 0, r: 0 },
+      { q: -1, r: 0 },
+      { q: 1, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+    ]);
+    const candidateId = id({ q: 0, r: 0 });
+    placeWithOpenTargets(state, id({ q: -1, r: 0 }), [candidateId]);
+
+    const constraints = classifyCandidateEdges(state, candidateId);
+    expectEdgeKinds(state, candidateId, {
+      0: "optional",
+      1: "optional",
+      2: "optional",
+      3: "required",
+      4: "forbidden",
+      5: "forbidden",
+    });
+    assert.deepEqual(
+      constraints
+        .filter((constraint) => constraint.groupId === "frontier-continuations")
+        .map((constraint) => constraint.edge),
+      [0, 1, 2],
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [3],
+      false,
+      "example 6 capped C attach",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 3],
+      true,
+      "example 6 one continuation",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 2, 3],
+      true,
+      "example 6 three continuations",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 3, 4],
+      false,
+      "example 6 forbidden lower leg",
+    );
+  });
+});
+
 describe("flat hex planet", () => {
   it("buildFlatHexPlanet links axial neighbours symmetrically", () => {
     const playable = [
