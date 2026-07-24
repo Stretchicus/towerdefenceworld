@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.58 — 2026-07-24
+
+### Changed
+
+- Placement finishes only when castles are connected **and** the road network is already clean (zero open stubs, no spur tips)
+- After castles join, placements that would add new open stubs are rejected
+- Removed seal/prune finish pass — no deleting or silently closing roads at end of placement
+
+### Fixed
+
+- Cap fallback auto-bridges then closes remaining stubs by placing/carving corridors instead of pruning
+
 ## 0.1.57 — 2026-07-23
 
 ### Fixed

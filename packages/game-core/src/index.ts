@@ -26,9 +26,11 @@ export {
   findLegalPlacements,
   buildRouteGraph,
   basesConnected,
+  placementNetworkComplete,
   autoPlaceOne,
   autoPlaceBag,
   autoBridge,
+  closeOpenEndsByPlacing,
   legalRotationsForCell,
   nextLegalRotation,
 } from "./tiles/placement.js";
@@ -36,8 +38,6 @@ export type { PlacementState } from "./tiles/placement.js";
 export {
   edgeKey,
   listOpenEnds,
-  sealOpenEndsFacingEmpty,
-  pruneDeadEndSpurs,
 } from "./tiles/openEnds.js";
 export type { OpenEnd } from "./tiles/openEnds.js";
 export { shapeConnections } from "./tiles/shapes.js";

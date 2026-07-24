@@ -58,11 +58,15 @@ export function sampleNextTile(
     ? candidates.filter(({ shape }) => shape === "split")
     : candidates;
   const pool = forcedCandidates.length > 0 ? forcedCandidates : candidates;
+  const connected = basesConnected(state);
+  const openEndsRemain = listOpenEnds(state).length > 0;
   const joinPressure =
-    !basesConnected(state) &&
-    (new Set(componentByCell.values()).size > 1 || hasAdjacentOpenEnds(state));
+    (!connected &&
+      (new Set(componentByCell.values()).size > 1 ||
+        hasAdjacentOpenEnds(state))) ||
+    (connected && openEndsRemain);
   const weights = pool.map((candidate) =>
-    candidateWeight(candidate, opts, joinPressure),
+    candidateWeight(candidate, opts, joinPressure, connected && openEndsRemain),
   );
   const selected = pool[pickWeightedIndex(weights, opts.rng)]!;
 
@@ -93,6 +97,7 @@ function candidateWeight(
   candidate: LegalCandidate,
   opts: SampleTileOpts,
   joinPressure: boolean,
+  cleanupPhase: boolean,
 ): number {
   if (
     opts.seatCount === 2 &&
@@ -109,13 +114,22 @@ function candidateWeight(
       weight = 1;
       break;
     case "split":
-      weight =
-        splitChance >= 1
+      weight = cleanupPhase
+        ? candidate.mergeCapable
+          ? 0.5
+          : 0
+        : splitChance >= 1
           ? Number.MAX_SAFE_INTEGER
           : (2 * splitChance) / Math.max(1 - splitChance, Number.EPSILON);
       break;
     case "cross":
-      weight = joinPressure ? 0.05 : 0;
+      weight = cleanupPhase
+        ? candidate.mergeCapable
+          ? 0.25
+          : 0
+        : joinPressure
+          ? 0.05
+          : 0;
       break;
   }
 
@@ -125,6 +139,9 @@ function candidateWeight(
     (candidate.shape === "straight" || candidate.shape === "bend")
   ) {
     weight *= 4;
+  }
+  if (cleanupPhase && candidate.mergeCapable) {
+    weight *= 3;
   }
   return weight;
 }

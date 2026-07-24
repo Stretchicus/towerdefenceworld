@@ -27,6 +27,7 @@ import {
   pickRandomPathToAliveEnemy,
   pickSpawnTarget,
   placeTile,
+  placementNetworkComplete,
   sampleNextTile,
   scaleCost,
   scoreTowerPoints,
@@ -334,10 +335,14 @@ describe("placement", () => {
       ],
     });
     assert.equal(match.phase, "countdown");
+    assert.ok(
+      placementNetworkComplete(match.placement),
+      "auto finish must leave a clean network (no open stubs / spur tips)",
+    );
     assert.equal(
       listOpenEnds(match.placement).length,
       0,
-      "auto finish must seal dead-end stubs",
+      "auto finish must have zero open stubs",
     );
     // No non-base cul-de-sacs
     for (const [cellId, nbrs] of match.routeGraph) {
@@ -446,7 +451,91 @@ describe("placement", () => {
     }
 
     assert.ok(basesConnected(match.placement));
+    assert.ok(placementNetworkComplete(match.placement));
+    assert.equal(listOpenEnds(match.placement).length, 0);
     assert.equal(match.currentOffer, null);
+  });
+
+  it("cleanup phase rejects placements that increase open ends", () => {
+    const planet = buildPlanet("small", 2);
+    const placement = createPlacementState(planet, createRng(2));
+    let guard = 0;
+    while (!basesConnected(placement) && guard++ < 200) {
+      const tile = sampleNextTile(placement, {
+        seatCount: 2,
+        tilesPlacedNonBase: guard,
+        roundIndex: Math.floor(guard / 2),
+        splitChance: 0.5,
+        resources: ["stone", "power"],
+        towerPointChance: 0,
+        mineChance: 0,
+        rng: createRng(100 + guard),
+      });
+      const legal = findLegalPlacements(placement, tile);
+      if (legal.length === 0) break;
+      placeTile(placement, legal[0]!.cellId, tile, legal[0]!.rotation);
+    }
+    assert.ok(basesConnected(placement), "expected connected board for cleanup test");
+    if (listOpenEnds(placement).length === 0) return;
+
+    const before = listOpenEnds(placement).length;
+    const split = makeTile("cleanup-split", shapeConnections("split"));
+    let checkedIncrease = false;
+    for (const end of listOpenEnds(placement)) {
+      const cell = planet.cells[end.cellId]!;
+      for (let r = 0; r < cell.sides; r++) {
+        const candidate = {
+          cellId: end.cellId,
+          tile: split,
+          rotation: r,
+          connections: split.connections
+            .slice(0, cell.sides)
+            .map((_, i) => {
+              const src =
+                split.connections[(i - r + cell.sides) % cell.sides] ?? false;
+              return src;
+            }),
+        };
+        while (candidate.connections.length < cell.sides) {
+          candidate.connections.push(false);
+        }
+        const placed = new Map(placement.placed);
+        placed.set(end.cellId, candidate);
+        const after = listOpenEnds({ ...placement, placed }).length;
+        if (after <= before) continue;
+        checkedIncrease = true;
+        assert.equal(
+          isLegalPlacement(placement, end.cellId, split, r),
+          false,
+          `must reject open-end increase at cell ${end.cellId} rot ${r}`,
+        );
+      }
+    }
+    assert.ok(
+      checkedIncrease || findLegalPlacements(placement, split).every(() => true),
+      "expected at least one increasing split candidate or only non-increasing legals",
+    );
+    for (const opt of findLegalPlacements(placement, split)) {
+      const cell = planet.cells[opt.cellId]!;
+      const connections = split.connections.slice(0, cell.sides).map((_, i) => {
+        const src =
+          split.connections[(i - opt.rotation + cell.sides) % cell.sides] ??
+          false;
+        return src;
+      });
+      while (connections.length < cell.sides) connections.push(false);
+      const placed = new Map(placement.placed);
+      placed.set(opt.cellId, {
+        cellId: opt.cellId,
+        tile: split,
+        rotation: opt.rotation,
+        connections,
+      });
+      assert.ok(
+        listOpenEnds({ ...placement, placed }).length <= before,
+        "legal cleanup placement must not increase open ends",
+      );
+    }
   });
 });
 

@@ -61,13 +61,16 @@ Mines / tower-pad flags continue to attach to tiles with existing chances, indep
 
 ### End of placement
 
-- When **all alive castles** lie on **one** connected road graph → enter combat.
-- **Safety:** if placement turns exceed a high cap without merge, auto-bridge remaining components (rare fallback).
+- Placement continues until **all alive castles** lie on **one** connected road graph **and** there are **zero open stubs** (no road edge into empty land) and **no spur tips** (every non-base road cell has route degree ≥ 2).
+- After castles are already joined, placements that would **increase** the open-end count are illegal (cleanup phase); straights/bends that move a tip and merges that reduce ends remain legal.
+- Combat starts only when that clean network already exists. There is **no** seal-or-prune pass that deletes or closes roads after the fact.
+- **Safety:** if placement turns exceed a high cap without a clean network, auto-bridge remaining components and close stubs by placing/carving real corridors (still no prune).
 
 ### Removed systems
 
 - Preplanned corridor masks / exact-mask bag (`buildCorridorNetwork` placement path) are retired for match flow in favour of this grow-from-ends model.
-- Auto placement mode may keep an AI that repeatedly samples+places until connected (same rules).
+- Auto placement mode may keep an AI that repeatedly samples+places until the network is complete (same rules).
+- Post-finish `sealOpenEndsFacingEmpty` / `pruneDeadEndSpurs` are removed from match flow.
 
 ---
 
@@ -119,6 +122,6 @@ Locking the whole map with your own signs only hurts you: enemy bods ignore your
 
 - New match starts with exactly one road stub per castle and only those ends highlighted.
 - Players can only drop on valid ends; rotate never offers illegal orientations for the hovered end.
-- Placement ends only when all castles share one road graph (or safety auto-bridge).
+- Placement ends only when all castles share one road graph with zero open stubs and no spur tips (or safety auto-bridge + stub close).
 - No Targets button; bods only chase alive enemy castles.
 - Own no-entries redirect only own bods; enemies cannot see the signs; own-castle contact still damages.

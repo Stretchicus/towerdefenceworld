@@ -12,16 +12,16 @@ import { createRng } from "../rng.js";
 import { buildPlanet } from "../planet/goldberg.js";
 import {
   autoBridge,
-  basesConnected,
   buildRouteGraph,
   createPlacementState,
   findLegalPlacements,
   isLegalPlacement,
   placeTile,
+  placementNetworkComplete,
   type PlacementState,
 } from "../tiles/placement.js";
 import { sampleNextTile } from "../tiles/sampleTile.js";
-import { edgeKey, listOpenEnds, pruneDeadEndSpurs, sealOpenEndsFacingEmpty } from "../tiles/openEnds.js";
+import { edgeKey, listOpenEnds } from "../tiles/openEnds.js";
 import { pathLength } from "./pathfinding.js";
 import {
   pickRandomContinuationToAliveEnemy,
@@ -261,7 +261,7 @@ export function createMatch(input: CreateMatchInput): MatchState {
 function runAutoPlacement(state: MatchState): void {
   while (
     state.phase === "placement" &&
-    !basesConnected(state.placement) &&
+    !placementNetworkComplete(state.placement) &&
     state.placementTurns < state.config.placementTurnCap
   ) {
     const tile = state.currentOffer;
@@ -277,14 +277,14 @@ function runAutoPlacement(state: MatchState): void {
 
 export function finishPlacement(state: MatchState): void {
   if (
-    !basesConnected(state.placement) &&
+    !placementNetworkComplete(state.placement) &&
     state.placementTurns >= state.config.placementTurnCap
   ) {
     autoBridge(state.placement);
+  } else if (!placementNetworkComplete(state.placement)) {
+    // Safety: stuck with no legal offer — bridge + close stubs by placing/carving.
+    autoBridge(state.placement);
   }
-  // Never leave roads into empty land or spur cul-de-sacs (auto or manual).
-  sealOpenEndsFacingEmpty(state.placement);
-  pruneDeadEndSpurs(state.placement, buildRouteGraph);
   state.currentOffer = null;
   state.routeGraph = buildRouteGraph(state.placement);
   state.phase = "countdown";
@@ -346,7 +346,7 @@ export function intentPlaceTile(
 
 function sampleOffer(state: MatchState): TileDef | null {
   if (
-    basesConnected(state.placement) ||
+    placementNetworkComplete(state.placement) ||
     state.placementTurns >= state.config.placementTurnCap
   ) {
     return null;
@@ -385,7 +385,7 @@ function completePlacementTurn(state: MatchState): void {
   state.placementTurns++;
   state.routeGraph = buildRouteGraph(state.placement);
   if (
-    basesConnected(state.placement) ||
+    placementNetworkComplete(state.placement) ||
     state.placementTurns >= state.config.placementTurnCap
   ) {
     finishPlacement(state);
