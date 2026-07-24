@@ -196,14 +196,18 @@ describe("placement", () => {
     }
   });
 
-  it("guarantees a split in the first three 3-seat offers", () => {
+  it("offers a 3-seat split early only when a non-increasing placement exists", () => {
     for (let seed = 1; seed <= 20; seed++) {
       const planet = buildPlanet("small", 3);
       const rng = createRng(seed);
       const state = createPlacementState(planet, rng);
       let forcedSplitRemaining = 1;
-      let sawSplit = false;
       for (let placed = 0; placed < 3; placed++) {
+        const beforeEnds = listOpenEnds(state).length;
+        const splitLegal = findLegalPlacements(
+          state,
+          makeTile("probe-split", shapeConnections("split")),
+        ).length > 0;
         const tile = sampleNextTile(state, {
           seatCount: 3,
           tilesPlacedNonBase: placed,
@@ -216,17 +220,61 @@ describe("placement", () => {
           forcedSplitRemaining,
         });
         const isSplit = tile.id.startsWith("split-");
-        sawSplit ||= isSplit;
-        if (isSplit) forcedSplitRemaining = 0;
+        if (isSplit) {
+          assert.ok(splitLegal, `seed ${seed}: split offered without legal placement`);
+          forcedSplitRemaining = 0;
+        } else if (forcedSplitRemaining > 0 && placed === 2) {
+          assert.equal(
+            splitLegal,
+            false,
+            `seed ${seed}: expected forced split when legal, or no legal split`,
+          );
+        }
         const legal = findLegalPlacements(state, tile);
         assert.ok(legal.length > 0, `seed ${seed}, offer ${placed}`);
         const choice = legal[Math.floor(rng() * legal.length)]!;
         assert.equal(placeTile(state, choice.cellId, tile, choice.rotation), true);
+        assert.ok(
+          listOpenEnds(state).length <= beforeEnds,
+          `seed ${seed}: placement must not increase open ends`,
+        );
       }
-      assert.ok(sawSplit, `seed ${seed}`);
     }
   });
 
+  it("placements that increase open ends are always illegal", () => {
+    const planet = buildPlanet("small", 2);
+    const placement = createPlacementState(planet, createRng(5));
+    const before = listOpenEnds(placement).length;
+    assert.ok(before >= 2);
+    const split = makeTile("early-split", shapeConnections("split"));
+    let sawIncreasing = false;
+    for (const end of listOpenEnds(placement)) {
+      const cell = planet.cells[end.cellId]!;
+      for (let r = 0; r < cell.sides; r++) {
+        const connections = split.connections.slice(0, cell.sides).map((_, i) => {
+          return split.connections[(i - r + cell.sides) % cell.sides] ?? false;
+        });
+        while (connections.length < cell.sides) connections.push(false);
+        const placed = new Map(placement.placed);
+        placed.set(end.cellId, {
+          cellId: end.cellId,
+          tile: split,
+          rotation: r,
+          connections,
+        });
+        const after = listOpenEnds({ ...placement, placed }).length;
+        if (after <= before) continue;
+        sawIncreasing = true;
+        assert.equal(
+          isLegalPlacement(placement, end.cellId, split, r),
+          false,
+          `must reject open-end increase at ${end.cellId} rot ${r}`,
+        );
+      }
+    }
+    assert.ok(sawIncreasing, "expected at least one increasing split rotation on day-1 stubs");
+  });
   it("does not sample splits in the first 2-seat round", () => {
     for (let seed = 1; seed <= 20; seed++) {
       const planet = buildPlanet("small", 2);
@@ -392,7 +440,7 @@ describe("placement", () => {
     assert.equal(match.phase, "combat");
   });
 
-  it("keeps the 3-seat split guarantee pending after a cross offer", () => {
+  it("3-seat early offers never increase open ends", () => {
     const match = createMatch({
       id: "forced-split",
       seed: 1,
@@ -411,15 +459,16 @@ describe("placement", () => {
       ],
     });
 
-    const firstRoundIds: string[] = [];
-    for (let turn = 0; turn < 3; turn++) {
-      firstRoundIds.push(currentTile(match)!.id);
+    for (let turn = 0; turn < 3 && match.phase === "placement"; turn++) {
+      const before = listOpenEnds(match.placement).length;
+      const offer = currentTile(match);
+      assert.ok(offer);
       for (let pulse = 0; pulse < 12; pulse++) runAiPlacement(match);
+      assert.ok(
+        listOpenEnds(match.placement).length <= before,
+        `turn ${turn} increased open ends`,
+      );
     }
-    assert.ok(
-      firstRoundIds.some((id) => id.startsWith("split-")),
-      firstRoundIds.join(", "),
-    );
   });
 
   it("manual placement consumes offers and finishes when bases connect", () => {
@@ -456,7 +505,7 @@ describe("placement", () => {
     assert.equal(match.currentOffer, null);
   });
 
-  it("cleanup phase rejects placements that increase open ends", () => {
+  it("legal placements never increase open-end count after connect", () => {
     const planet = buildPlanet("small", 2);
     const placement = createPlacementState(planet, createRng(2));
     let guard = 0;
@@ -475,53 +524,17 @@ describe("placement", () => {
       if (legal.length === 0) break;
       placeTile(placement, legal[0]!.cellId, tile, legal[0]!.rotation);
     }
-    assert.ok(basesConnected(placement), "expected connected board for cleanup test");
+    assert.ok(basesConnected(placement), "expected connected board");
     if (listOpenEnds(placement).length === 0) return;
 
     const before = listOpenEnds(placement).length;
     const split = makeTile("cleanup-split", shapeConnections("split"));
-    let checkedIncrease = false;
-    for (const end of listOpenEnds(placement)) {
-      const cell = planet.cells[end.cellId]!;
-      for (let r = 0; r < cell.sides; r++) {
-        const candidate = {
-          cellId: end.cellId,
-          tile: split,
-          rotation: r,
-          connections: split.connections
-            .slice(0, cell.sides)
-            .map((_, i) => {
-              const src =
-                split.connections[(i - r + cell.sides) % cell.sides] ?? false;
-              return src;
-            }),
-        };
-        while (candidate.connections.length < cell.sides) {
-          candidate.connections.push(false);
-        }
-        const placed = new Map(placement.placed);
-        placed.set(end.cellId, candidate);
-        const after = listOpenEnds({ ...placement, placed }).length;
-        if (after <= before) continue;
-        checkedIncrease = true;
-        assert.equal(
-          isLegalPlacement(placement, end.cellId, split, r),
-          false,
-          `must reject open-end increase at cell ${end.cellId} rot ${r}`,
-        );
-      }
-    }
-    assert.ok(
-      checkedIncrease || findLegalPlacements(placement, split).every(() => true),
-      "expected at least one increasing split candidate or only non-increasing legals",
-    );
     for (const opt of findLegalPlacements(placement, split)) {
       const cell = planet.cells[opt.cellId]!;
       const connections = split.connections.slice(0, cell.sides).map((_, i) => {
-        const src =
-          split.connections[(i - opt.rotation + cell.sides) % cell.sides] ??
-          false;
-        return src;
+        return (
+          split.connections[(i - opt.rotation + cell.sides) % cell.sides] ?? false
+        );
       });
       while (connections.length < cell.sides) connections.push(false);
       const placed = new Map(placement.placed);
@@ -533,7 +546,7 @@ describe("placement", () => {
       });
       assert.ok(
         listOpenEnds({ ...placement, placed }).length <= before,
-        "legal cleanup placement must not increase open ends",
+        "legal placement must not increase open ends",
       );
     }
   });

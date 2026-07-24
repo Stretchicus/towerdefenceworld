@@ -1,12 +1,14 @@
 ---
-description: Auto-commit meaningful work and always push to origin
+description: Auto-commit meaningful work and always push to origin/main
 alwaysApply: true
 ---
 
 # Git push preference
 
-After creating a git commit for meaningful work in this repo, **always push** to `origin` (same branch) without waiting to be asked.
+After creating a git commit for meaningful work in this repo, **always push** to `origin` without waiting to be asked.
 
+- **Default branch is `main`.** Bugfixes and placement/combat corrections ship **straight to `main`** (commit on `main` and push). Do not open a feature-branch PR for bugfixes unless the user explicitly asks for a branch/PR.
+- Feature branches / draft PRs only when the user asks for a new feature isolation or review-before-merge workflow.
 - Still only commit when appropriate (meaningful completed work / when the user expects it).
 - Do not force-push to main/master.
 - If push fails (auth, conflicts, rejected), report the error and stop.

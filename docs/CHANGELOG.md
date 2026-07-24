@@ -5,8 +5,9 @@
 ### Changed
 
 - Placement finishes only when castles are connected **and** the road network is already clean (zero open stubs, no spur tips)
-- After castles join, placements that would add new open stubs are rejected
+- Placements that would **increase** open stub count are always illegal (not only after castles join)
 - Removed seal/prune finish pass — no deleting or silently closing roads at end of placement
+- Bugfixes ship straight to `main`
 
 ### Fixed
 

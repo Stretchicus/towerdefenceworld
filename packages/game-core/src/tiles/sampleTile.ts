@@ -53,20 +53,17 @@ export function sampleNextTile(
     throw new Error("No tile shape has a legal placement");
   }
 
+  // Prefer a legal split early in 3p only when one exists (non-increasing).
   const splitRequired = mustForceFirstRoundSplit(opts);
-  const forcedCandidates = splitRequired
-    ? candidates.filter(({ shape }) => shape === "split")
-    : candidates;
-  const pool = forcedCandidates.length > 0 ? forcedCandidates : candidates;
-  const connected = basesConnected(state);
-  const openEndsRemain = listOpenEnds(state).length > 0;
+  const splitCandidates = candidates.filter(({ shape }) => shape === "split");
+  const forcedCandidates =
+    splitRequired && splitCandidates.length > 0 ? splitCandidates : candidates;
+  const pool = forcedCandidates;
   const joinPressure =
-    (!connected &&
-      (new Set(componentByCell.values()).size > 1 ||
-        hasAdjacentOpenEnds(state))) ||
-    (connected && openEndsRemain);
+    !basesConnected(state) &&
+    (new Set(componentByCell.values()).size > 1 || hasAdjacentOpenEnds(state));
   const weights = pool.map((candidate) =>
-    candidateWeight(candidate, opts, joinPressure, connected && openEndsRemain),
+    candidateWeight(candidate, opts, joinPressure),
   );
   const selected = pool[pickWeightedIndex(weights, opts.rng)]!;
 
@@ -97,7 +94,6 @@ function candidateWeight(
   candidate: LegalCandidate,
   opts: SampleTileOpts,
   joinPressure: boolean,
-  cleanupPhase: boolean,
 ): number {
   if (
     opts.seatCount === 2 &&
@@ -114,22 +110,15 @@ function candidateWeight(
       weight = 1;
       break;
     case "split":
-      weight = cleanupPhase
-        ? candidate.mergeCapable
-          ? 0.5
-          : 0
-        : splitChance >= 1
+      // Only legal (non-increasing) splits reach here; weight by config.
+      weight =
+        splitChance >= 1
           ? Number.MAX_SAFE_INTEGER
           : (2 * splitChance) / Math.max(1 - splitChance, Number.EPSILON);
+      if (candidate.mergeCapable) weight *= 2;
       break;
     case "cross":
-      weight = cleanupPhase
-        ? candidate.mergeCapable
-          ? 0.25
-          : 0
-        : joinPressure
-          ? 0.05
-          : 0;
+      weight = joinPressure && candidate.mergeCapable ? 0.05 : 0;
       break;
   }
 
@@ -139,9 +128,6 @@ function candidateWeight(
     (candidate.shape === "straight" || candidate.shape === "bend")
   ) {
     weight *= 4;
-  }
-  if (cleanupPhase && candidate.mergeCapable) {
-    weight *= 3;
   }
   return weight;
 }

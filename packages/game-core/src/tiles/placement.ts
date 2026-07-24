@@ -109,12 +109,10 @@ export function isLegalPlacement(
 
   if (!touchesRoute) return false;
 
-  // Cleanup phase: castles already joined — never grow new dangling stubs.
-  if (basesConnected(state)) {
-    const before = listOpenEnds(state).length;
-    const after = openEndCountWithCandidate(state, cellId, candidate);
-    if (after > before) return false;
-  }
+  // Never grow dangling stubs: open-end count must not increase.
+  const before = listOpenEnds(state).length;
+  const after = openEndCountWithCandidate(state, cellId, candidate);
+  if (after > before) return false;
 
   return true;
 }

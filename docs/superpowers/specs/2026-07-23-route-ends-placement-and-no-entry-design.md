@@ -40,6 +40,7 @@ Out of scope: redesigning mines/tower pads beyond attaching them to generated ti
 - Tiles may only be placed on an **open route end** (empty cell adjacent to an open road stub of the growing network).
 - On your turn you may place on **any** open end (shared network building).
 - Edge matching: the attaching edge must be open against the stub; other edges must be consistent with already-placed neighbours (mutual opens or mutual closes). Closed edges against empty cells become new open stubs (new ends) when they face empty land.
+- **Open-end conservation (always):** a placement is illegal if it would **increase** the number of open stubs. Straights/bends that replace one stub with one new stub are fine; a split/cross is only legal when it attaches in a way that does not grow the stub count (typically merging multiple ends).
 
 ### Tile shapes
 
@@ -52,9 +53,9 @@ Each turn the sim **samples** a tile from the set of shapes that have ≥1 legal
 
 | Rule | Behaviour |
 |------|-----------|
-| Always | Only offer placeable tiles (no dead draws). |
-| 3 players | Among the first 3 tiles, ≥1 is a split. |
-| 2 players | No splits in round 1; afterward splits at config `splitChance` (tweakable). |
+| Always | Only offer placeable tiles (no dead draws); legality includes open-end conservation. |
+| 3 players | Prefer a legal split early in round 1 when one exists; never force an illegal (stub-increasing) split. |
+| 2 players | No splits in round 1; afterward splits at config `splitChance` (tweakable) when legal. |
 | Join pressure | If >1 road components remain, or open ends are adjacent / one step from merging, bias weights toward tiles that enable merges so unification stays possible. |
 
 Mines / tower-pad flags continue to attach to tiles with existing chances, independent of topology.
@@ -62,7 +63,7 @@ Mines / tower-pad flags continue to attach to tiles with existing chances, indep
 ### End of placement
 
 - Placement continues until **all alive castles** lie on **one** connected road graph **and** there are **zero open stubs** (no road edge into empty land) and **no spur tips** (every non-base road cell has route degree ≥ 2).
-- After castles are already joined, placements that would **increase** the open-end count are illegal (cleanup phase); straights/bends that move a tip and merges that reduce ends remain legal.
+- Open-end conservation applies for the whole placement phase (not only after castles join).
 - Combat starts only when that clean network already exists. There is **no** seal-or-prune pass that deletes or closes roads after the fact.
 - **Safety:** if placement turns exceed a high cap without a clean network, auto-bridge remaining components and close stubs by placing/carving real corridors (still no prune).
 
