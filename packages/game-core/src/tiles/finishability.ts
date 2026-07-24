@@ -1,5 +1,13 @@
 import type { PlacementState } from "./placement.js";
 
+export type EdgeKind = "required" | "forbidden" | "optional";
+
+export type EdgeConstraint = {
+  edge: number;
+  kind: EdgeKind;
+  groupId?: string;
+};
+
 export type Pocket = {
   emptyCellIds: number[];
   stubEdges: { fromCellId: number; edge: number; intoCellId: number }[];
@@ -126,4 +134,204 @@ export function pocketsAfterPlacing(
   }
 
   return pockets;
+}
+
+function edgeTo(cellId: number, neighborId: number, state: PlacementState): number {
+  const edge = state.planet.cells[cellId]!.neighbors.indexOf(neighborId);
+  if (edge < 0) throw new Error(`Cell ${cellId} is not adjacent to ${neighborId}`);
+  return edge;
+}
+
+function setConstraint(
+  constraints: EdgeConstraint[],
+  edge: number,
+  kind: EdgeKind,
+  groupId?: string,
+): void {
+  constraints[edge] =
+    groupId === undefined ? { edge, kind } : { edge, kind, groupId };
+}
+
+function candidateEdgesInto(
+  state: PlacementState,
+  candidateCellId: number,
+  cells: Set<number>,
+): { edge: number; cellId: number }[] {
+  const candidate = state.planet.cells[candidateCellId]!;
+  const edges: { edge: number; cellId: number }[] = [];
+  for (let edge = 0; edge < candidate.neighbors.length; edge++) {
+    const neighbor = candidate.neighbors[edge]!;
+    if (cells.has(neighbor)) edges.push({ edge, cellId: neighbor });
+  }
+  return edges;
+}
+
+function shortestDistancesWithin(
+  state: PlacementState,
+  fromCellId: number,
+  allowed: Set<number>,
+): Map<number, number> {
+  if (!allowed.has(fromCellId)) return new Map();
+  const distances = new Map<number, number>([[fromCellId, 0]]);
+  const queue = [fromCellId];
+  while (queue.length > 0) {
+    const current = queue.shift()!;
+    const nextDistance = distances.get(current)! + 1;
+    for (const neighbor of state.planet.cells[current]!.neighbors) {
+      if (!allowed.has(neighbor) || distances.has(neighbor)) continue;
+      distances.set(neighbor, nextDistance);
+      queue.push(neighbor);
+    }
+  }
+  return distances;
+}
+
+function requiredEdgesForStubPaths(
+  state: PlacementState,
+  pocketCells: Set<number>,
+  pocketEdges: { edge: number; cellId: number }[],
+  stubs: Pocket["stubEdges"],
+): Set<number> {
+  const required = new Set<number>();
+  for (const stub of stubs) {
+    const distances = shortestDistancesWithin(state, stub.intoCellId, pocketCells);
+    let best = Infinity;
+    for (const edge of pocketEdges) {
+      const distance = distances.get(edge.cellId);
+      if (distance !== undefined && distance < best) best = distance;
+    }
+    if (!Number.isFinite(best)) continue;
+    for (const edge of pocketEdges) {
+      if (distances.get(edge.cellId) === best) required.add(edge.edge);
+    }
+  }
+  return required;
+}
+
+function pocketGroupId(pocket: Pocket): string {
+  const id = Math.min(...pocket.emptyCellIds);
+  return `pocket-${id}`;
+}
+
+export function classifyCandidateEdges(
+  state: PlacementState,
+  cellId: number,
+): EdgeConstraint[] {
+  const cell = state.planet.cells[cellId];
+  if (!cell) return [];
+  const boundaryId = boundaryCellId(state);
+  const constraints: EdgeConstraint[] = cell.neighbors.map((_, edge) => ({
+    edge,
+    kind: "optional",
+  }));
+  const attachingStubEdges = new Set<number>();
+
+  for (let edge = 0; edge < cell.neighbors.length; edge++) {
+    const neighborId = cell.neighbors[edge]!;
+    const neighborCell = state.planet.cells[neighborId];
+    if (!neighborCell || (boundaryId !== null && neighborId === boundaryId)) {
+      setConstraint(constraints, edge, "forbidden");
+      continue;
+    }
+
+    const neighborPlaced = state.placed.get(neighborId);
+    if (!neighborPlaced) continue;
+
+    const neighborEdge = edgeTo(neighborId, cellId, state);
+    if (neighborPlaced.connections[neighborEdge] ?? false) {
+      setConstraint(constraints, edge, "required");
+      attachingStubEdges.add(edge);
+    } else {
+      setConstraint(constraints, edge, "forbidden");
+    }
+  }
+
+  const sealedPocketCells = new Set<number>();
+  for (const pocket of pocketsAfterPlacing(state, cellId)) {
+    if (!pocket.sealedByCandidate) continue;
+
+    const pocketCells = new Set(pocket.emptyCellIds);
+    for (const emptyCellId of pocket.emptyCellIds) {
+      sealedPocketCells.add(emptyCellId);
+    }
+    const pocketEdges = candidateEdgesInto(state, cellId, pocketCells);
+    if (pocketEdges.length === 0) continue;
+
+    if (pocket.stubEdges.length >= 1) {
+      const required = requiredEdgesForStubPaths(
+        state,
+        pocketCells,
+        pocketEdges,
+        pocket.stubEdges,
+      );
+      const edgesToRequire =
+        required.size > 0 ? required : new Set(pocketEdges.map((edge) => edge.edge));
+      for (const edge of edgesToRequire) setConstraint(constraints, edge, "required");
+    } else if (pocket.emptyCellIds.length === 1) {
+      for (const edge of pocketEdges) {
+        setConstraint(constraints, edge.edge, "forbidden");
+      }
+    } else {
+      const groupId = pocketGroupId(pocket);
+      for (const edge of pocketEdges) {
+        setConstraint(constraints, edge.edge, "optional", groupId);
+      }
+    }
+  }
+
+  const requiredEdges = constraints.filter((c) => c.kind === "required");
+  const requiredOnlyAttachPlaced =
+    attachingStubEdges.size === 1 &&
+    requiredEdges.length === attachingStubEdges.size &&
+    requiredEdges.every((c) => attachingStubEdges.has(c.edge));
+  if (requiredOnlyAttachPlaced) {
+    for (const constraint of constraints) {
+      if (constraint.kind !== "optional") continue;
+      const neighborId = cell.neighbors[constraint.edge]!;
+      if (state.placed.has(neighborId)) continue;
+      if (boundaryId !== null && neighborId === boundaryId) continue;
+      if (sealedPocketCells.has(neighborId)) continue;
+      if (!state.planet.cells[neighborId]) continue;
+      setConstraint(
+        constraints,
+        constraint.edge,
+        "optional",
+        "frontier-continuations",
+      );
+    }
+  }
+
+  return constraints;
+}
+
+export function connectionsSatisfyFinishability(
+  state: PlacementState,
+  cellId: number,
+  connections: boolean[],
+): boolean {
+  const constraints = classifyCandidateEdges(state, cellId);
+  if (constraints.length === 0) return false;
+
+  const groups = new Map<string, { open: number; total: number }>();
+  for (const constraint of constraints) {
+    const open = connections[constraint.edge] ?? false;
+    if (constraint.kind === "required" && !open) return false;
+    if (constraint.kind === "forbidden" && open) return false;
+    if (constraint.kind === "optional" && constraint.groupId) {
+      const group = groups.get(constraint.groupId) ?? { open: 0, total: 0 };
+      group.total += 1;
+      if (open) group.open += 1;
+      groups.set(constraint.groupId, group);
+    }
+  }
+
+  for (const [groupId, group] of groups) {
+    if (groupId === "frontier-continuations") {
+      if (group.open < 1) return false;
+    } else if (group.open !== 0 && group.open !== group.total) {
+      return false;
+    }
+  }
+
+  return true;
 }

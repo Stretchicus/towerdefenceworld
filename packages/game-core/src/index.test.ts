@@ -4,6 +4,8 @@ import {
   autoPlaceBag,
   basesConnected,
   buildFlatHexPlanet,
+  classifyCandidateEdges,
+  connectionsSatisfyFinishability,
   flatHexBoundaryId,
   pocketsAfterPlacing,
   buildPlanet,
@@ -53,7 +55,13 @@ function flushCountdown(match: MatchState): void {
   while (match.phase === "countdown" && guard++ < 1000) tickMatch(match);
 }
 describe("pocket detection", () => {
-  it("detects a single-cell pocket sealed by the candidate gap", () => {
+  function placeClosedRingAroundSinglePocket(
+    openStubIntoCenter = false,
+  ): {
+    state: ReturnType<typeof createPlacementState>;
+    centerId: number;
+    candidateId: number;
+  } {
     const playable = [
       { q: 0, r: 0 },
       { q: 1, r: 0 },
@@ -69,16 +77,26 @@ describe("pocket detection", () => {
     const closed = makeTile("closed", [false, false, false, false, false, false]);
     const placed = new Map<number, import("./types.js").PlacedTile>();
     for (const id of [1, 2, 3, 4, 5]) {
+      const connections = [false, false, false, false, false, false];
+      if (openStubIntoCenter && id === 1) {
+        connections[planet.cells[id]!.neighbors.indexOf(centerId)] = true;
+      }
       placed.set(id, {
         cellId: id,
         tile: closed,
         rotation: 0,
-        connections: [false, false, false, false, false, false],
+        connections,
       });
     }
     const state = createPlacementState(planet);
     state.placed = placed;
     state.baseCellIds = [];
+    return { state, centerId, candidateId };
+  }
+
+  it("detects a single-cell pocket sealed by the candidate gap", () => {
+    const { state, centerId, candidateId } =
+      placeClosedRingAroundSinglePocket();
 
     const pockets = pocketsAfterPlacing(state, candidateId);
 
@@ -86,6 +104,93 @@ describe("pocket detection", () => {
     assert.deepEqual(pockets[0]!.emptyCellIds, [centerId]);
     assert.equal(pockets[0]!.sealedByCandidate, true);
     assert.deepEqual(pockets[0]!.stubEdges, []);
+  });
+
+  it("classifies a sealed one-cell pocket without stubs as forbidden", () => {
+    const { state, candidateId } = placeClosedRingAroundSinglePocket();
+
+    const constraints = classifyCandidateEdges(state, candidateId);
+
+    assert.deepEqual(
+      constraints.map((c) => c.kind),
+      ["forbidden", "forbidden", "forbidden", "forbidden", "forbidden", "forbidden"],
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, false, false, false, false, false],
+      ),
+      true,
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, false, true, false, false, false],
+      ),
+      false,
+    );
+  });
+
+  it("classifies a sealed one-cell pocket with a stub as required", () => {
+    const { state, candidateId } = placeClosedRingAroundSinglePocket(true);
+
+    const constraints = classifyCandidateEdges(state, candidateId);
+
+    assert.equal(constraints[2]!.kind, "required");
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, false, true, false, false, false],
+      ),
+      true,
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, false, false, false, false, false],
+      ),
+      false,
+    );
+  });
+
+  it("validates sealed multi-cell pocket edges as all-or-nothing", () => {
+    const { state, candidateId } = placeClosedRingAroundSinglePocket();
+    state.placed.delete(1);
+
+    const constraints = classifyCandidateEdges(state, candidateId);
+
+    assert.deepEqual(
+      constraints.filter((c) => c.groupId === "pocket-0").map((c) => c.edge),
+      [1, 2],
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, false, false, false, false, false],
+      ),
+      true,
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, true, true, false, false, false],
+      ),
+      true,
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, true, false, false, false, false],
+      ),
+      false,
+    );
   });
 });
 

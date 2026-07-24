@@ -18,9 +18,11 @@ export {
   type FlatHexCoord,
 } from "./tiles/flatHex.js";
 export {
+  classifyCandidateEdges,
+  connectionsSatisfyFinishability,
   pocketsAfterPlacing,
 } from "./tiles/finishability.js";
-export type { Pocket } from "./tiles/finishability.js";
+export type { EdgeConstraint, EdgeKind, Pocket } from "./tiles/finishability.js";
 export {
   makeTile,
   rotateConnections,
