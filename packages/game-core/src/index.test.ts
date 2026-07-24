@@ -391,6 +391,46 @@ describe("finishability examples", () => {
     );
   }
 
+  function expectMissingEachRequiredFails(
+    state: TestPlacementState,
+    candidateId: number,
+    requiredEdges: number[],
+    validOpenEdges: number[],
+    label: string,
+  ): void {
+    for (const missingEdge of requiredEdges) {
+      const openEdges = validOpenEdges.filter((edge) => edge !== missingEdge);
+      expectPlacementMask(
+        state,
+        candidateId,
+        openEdges,
+        false,
+        `${label} missing required edge ${missingEdge}`,
+      );
+    }
+  }
+
+  function expectEachForbiddenOpenFails(
+    state: TestPlacementState,
+    candidateId: number,
+    forbiddenEdges: number[],
+    validOpenEdges: number[],
+    label: string,
+  ): void {
+    for (const forbiddenEdge of forbiddenEdges) {
+      const openEdges = [...new Set([...validOpenEdges, forbiddenEdge])].sort(
+        (a, b) => a - b,
+      );
+      expectPlacementMask(
+        state,
+        candidateId,
+        openEdges,
+        false,
+        `${label} forbidden edge ${forbiddenEdge} open`,
+      );
+    }
+  }
+
   function throughLineWithOneCellPocket(withInternalStub: boolean): {
     state: TestPlacementState;
     candidateId: number;
@@ -417,6 +457,9 @@ describe("finishability examples", () => {
 
   it("example 1 requires a 3-way when closing a pocket with an internal stub", () => {
     const { state, candidateId } = throughLineWithOneCellPocket(true);
+    const requiredEdges = [0, 1, 3];
+    const forbiddenEdges = [2, 4, 5];
+    const validOpenEdges = [0, 1, 3];
 
     expectEdgeKinds(state, candidateId, {
       0: "required",
@@ -429,28 +472,31 @@ describe("finishability examples", () => {
     expectPlacementMask(
       state,
       candidateId,
-      [0, 1, 3],
+      validOpenEdges,
       true,
       "example 1 required 3-way",
     );
-    expectPlacementMask(
+    expectMissingEachRequiredFails(
       state,
       candidateId,
-      [0, 3],
-      false,
-      "example 1 missing pocket join",
+      requiredEdges,
+      validOpenEdges,
+      "example 1",
     );
-    expectPlacementMask(
+    expectEachForbiddenOpenFails(
       state,
       candidateId,
-      [0, 1, 2, 3],
-      false,
-      "example 1 forbidden extra leg",
+      forbiddenEdges,
+      validOpenEdges,
+      "example 1",
     );
   });
 
   it("example 2 forbids poking into a sealed one-cell empty pocket", () => {
     const { state, candidateId } = throughLineWithOneCellPocket(false);
+    const requiredEdges = [0, 3];
+    const forbiddenEdges = [1, 2, 4, 5];
+    const validOpenEdges = [0, 3];
 
     expectEdgeKinds(state, candidateId, {
       0: "required",
@@ -463,16 +509,23 @@ describe("finishability examples", () => {
     expectPlacementMask(
       state,
       candidateId,
-      [0, 3],
+      validOpenEdges,
       true,
       "example 2 through-line only",
     );
-    expectPlacementMask(
+    expectMissingEachRequiredFails(
       state,
       candidateId,
-      [0, 1, 3],
-      false,
-      "example 2 pocket poke",
+      requiredEdges,
+      validOpenEdges,
+      "example 2",
+    );
+    expectEachForbiddenOpenFails(
+      state,
+      candidateId,
+      forbiddenEdges,
+      validOpenEdges,
+      "example 2",
     );
   });
 
@@ -503,6 +556,10 @@ describe("finishability examples", () => {
       placeClosed(state, id(coord));
     }
 
+    const requiredEdges = [0, 1, 3, 4];
+    const forbiddenEdges = [2, 5];
+    const validOpenEdges = [0, 1, 3, 4];
+
     expectEdgeKinds(state, candidateId, {
       0: "required",
       1: "required",
@@ -514,23 +571,23 @@ describe("finishability examples", () => {
     expectPlacementMask(
       state,
       candidateId,
-      [0, 1, 3, 4],
+      validOpenEdges,
       true,
       "example 3 all blue legs",
     );
-    expectPlacementMask(
+    expectMissingEachRequiredFails(
       state,
       candidateId,
-      [0, 1, 3],
-      false,
-      "example 3 missing mesh stub",
+      requiredEdges,
+      validOpenEdges,
+      "example 3",
     );
-    expectPlacementMask(
+    expectEachForbiddenOpenFails(
       state,
       candidateId,
-      [0, 1, 2, 3, 4],
-      false,
-      "example 3 red leg open",
+      forbiddenEdges,
+      validOpenEdges,
+      "example 3",
     );
   });
 
@@ -560,6 +617,10 @@ describe("finishability examples", () => {
       placeClosed(state, id(coord));
     }
 
+    const requiredEdges = [0, 3];
+    const forbiddenEdges = [1, 2, 4, 5];
+    const validOpenEdges = [0, 3];
+
     expectEdgeKinds(state, candidateId, {
       0: "required",
       1: "forbidden",
@@ -571,23 +632,23 @@ describe("finishability examples", () => {
     expectPlacementMask(
       state,
       candidateId,
-      [0, 3],
+      validOpenEdges,
       true,
       "example 4 blue subset",
     );
-    expectPlacementMask(
+    expectMissingEachRequiredFails(
       state,
       candidateId,
-      [0],
-      false,
-      "example 4 missing required leg",
+      requiredEdges,
+      validOpenEdges,
+      "example 4",
     );
-    expectPlacementMask(
+    expectEachForbiddenOpenFails(
       state,
       candidateId,
-      [0, 1, 3],
-      false,
-      "example 4 forbidden mesh-facing leg",
+      forbiddenEdges,
+      validOpenEdges,
+      "example 4",
     );
   });
 
@@ -603,6 +664,10 @@ describe("finishability examples", () => {
     placeWithOpenTargets(state, id({ q: 1, r: 0 }), [candidateId]);
     placeWithOpenTargets(state, id({ q: -1, r: 0 }), [candidateId]);
 
+    const requiredEdges = [0, 3];
+    const forbiddenEdges = [4, 5];
+    const validOpenEdges = [0, 3];
+
     const constraints = classifyCandidateEdges(state, candidateId);
     expectEdgeKinds(state, candidateId, {
       0: "required",
@@ -617,7 +682,7 @@ describe("finishability examples", () => {
     expectPlacementMask(
       state,
       candidateId,
-      [0, 3],
+      validOpenEdges,
       true,
       "example 5 greens neither",
     );
@@ -628,19 +693,33 @@ describe("finishability examples", () => {
       true,
       "example 5 greens both",
     );
+    expectMissingEachRequiredFails(
+      state,
+      candidateId,
+      requiredEdges,
+      validOpenEdges,
+      "example 5",
+    );
+    expectEachForbiddenOpenFails(
+      state,
+      candidateId,
+      forbiddenEdges,
+      validOpenEdges,
+      "example 5",
+    );
     expectPlacementMask(
       state,
       candidateId,
       [0, 1, 3],
       false,
-      "example 5 one green orphan",
+      "example 5 one green orphan edge 1",
     );
     expectPlacementMask(
       state,
       candidateId,
-      [0, 3, 4],
+      [0, 2, 3],
       false,
-      "example 5 southern forbidden",
+      "example 5 one green orphan edge 2",
     );
   });
 
@@ -654,6 +733,10 @@ describe("finishability examples", () => {
     ]);
     const candidateId = id({ q: 0, r: 0 });
     placeWithOpenTargets(state, id({ q: -1, r: 0 }), [candidateId]);
+
+    const requiredEdges = [3];
+    const forbiddenEdges = [4, 5];
+    const validOpenEdges = [0, 3];
 
     const constraints = classifyCandidateEdges(state, candidateId);
     expectEdgeKinds(state, candidateId, {
@@ -680,7 +763,7 @@ describe("finishability examples", () => {
     expectPlacementMask(
       state,
       candidateId,
-      [0, 3],
+      validOpenEdges,
       true,
       "example 6 one continuation",
     );
@@ -691,12 +774,19 @@ describe("finishability examples", () => {
       true,
       "example 6 three continuations",
     );
-    expectPlacementMask(
+    expectMissingEachRequiredFails(
       state,
       candidateId,
-      [0, 3, 4],
-      false,
-      "example 6 forbidden lower leg",
+      requiredEdges,
+      validOpenEdges,
+      "example 6",
+    );
+    expectEachForbiddenOpenFails(
+      state,
+      candidateId,
+      forbiddenEdges,
+      validOpenEdges,
+      "example 6",
     );
   });
 });
