@@ -218,6 +218,34 @@ describe("pocket detection", () => {
     );
   });
 
+  it("counts a stub into a multi-cell sealed pocket open-end cell", () => {
+    const { state, candidateId } = placeClosedRingAroundSinglePocket();
+    state.placed.delete(1);
+    placeOpenStub(state, 2, 1);
+
+    const pockets = pocketsAfterPlacing(state, candidateId);
+    assert.equal(pockets.length, 1);
+    assert.deepEqual(pockets[0]!.emptyCellIds, [0, 1]);
+    assert.deepEqual(
+      pockets[0]!.stubEdges.map(({ fromCellId, intoCellId }) => ({
+        fromCellId,
+        intoCellId,
+      })),
+      [{ fromCellId: 2, intoCellId: 1 }],
+    );
+
+    const constraints = classifyCandidateEdges(state, candidateId);
+    assert.equal(constraints[1]!.kind, "required");
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, false, true, false, false, false],
+      ),
+      false,
+    );
+  });
+
   it("requires at least one open frontier continuation from a single attach", () => {
     const playable = [
       { q: 0, r: 0 },
@@ -266,7 +294,7 @@ describe("pocket detection", () => {
     );
   });
 
-  it("allows an attach-only cap when every other edge is boundary", () => {
+  it("forbids an attach-only cap when every other edge is boundary", () => {
     const playable = [
       { q: 0, r: 0 },
       { q: -1, r: 0 },
@@ -283,7 +311,7 @@ describe("pocket detection", () => {
         candidateId,
         [false, false, false, true, false, false],
       ),
-      true,
+      false,
     );
   });
 });
@@ -720,6 +748,97 @@ describe("finishability examples", () => {
       [0, 2, 3],
       false,
       "example 5 one green orphan edge 2",
+    );
+  });
+
+  it("requires a join for an existing stub inside a multi-cell sealed pocket", () => {
+    const { state, id } = setupFlatExample([
+      { q: 0, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+      { q: 1, r: 0 },
+      { q: -1, r: 0 },
+    ]);
+    const candidateId = id({ q: 0, r: 0 });
+    placeWithOpenTargets(state, id({ q: 1, r: 0 }), [
+      candidateId,
+      id({ q: 1, r: -1 }),
+    ]);
+    placeWithOpenTargets(state, id({ q: -1, r: 0 }), [candidateId]);
+
+    expectEdgeKinds(state, candidateId, {
+      0: "required",
+      1: "required",
+      3: "required",
+      4: "forbidden",
+      5: "forbidden",
+    });
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 1, 3],
+      true,
+      "multi-cell sealed pocket joins existing stub",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 2, 3],
+      false,
+      "multi-cell sealed pocket poke misses existing stub",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [0, 3],
+      false,
+      "multi-cell sealed pocket through-line misses existing stub",
+    );
+  });
+
+  it("keeps pure-attach sealed pocket greens all-or-nothing", () => {
+    const { state, id } = setupFlatExample([
+      { q: 0, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+      { q: 1, r: 0 },
+      { q: -1, r: 0 },
+    ]);
+    const candidateId = id({ q: 0, r: 0 });
+    placeClosed(state, id({ q: 1, r: 0 }));
+    placeWithOpenTargets(state, id({ q: -1, r: 0 }), [candidateId]);
+
+    const constraints = classifyCandidateEdges(state, candidateId);
+    assert.equal(constraints[1]!.groupId, constraints[2]!.groupId);
+    assert.match(constraints[1]!.groupId ?? "", /^pocket-/);
+    assert.notEqual(constraints[1]!.groupId, "frontier-continuations");
+    expectPlacementMask(
+      state,
+      candidateId,
+      [3],
+      false,
+      "pure attach sealed pocket neither is a tip",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [1, 2, 3],
+      true,
+      "pure attach sealed pocket both greens",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [1, 3],
+      false,
+      "pure attach sealed pocket one green edge 1",
+    );
+    expectPlacementMask(
+      state,
+      candidateId,
+      [2, 3],
+      false,
+      "pure attach sealed pocket one green edge 2",
     );
   });
 

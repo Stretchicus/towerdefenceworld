@@ -1,5 +1,4 @@
 import type { PlacementState } from "./placement.js";
-import { listOpenEnds } from "./openEnds.js";
 
 export type EdgeKind = "required" | "forbidden" | "optional";
 
@@ -46,6 +45,23 @@ function componentAdjacentTo(
   return false;
 }
 
+function componentPlacedBoundaryCount(
+  component: Set<number>,
+  candidateCellId: number,
+  state: PlacementState,
+): number {
+  const placedBoundaryCellIds = new Set<number>();
+  for (const id of component) {
+    const cell = state.planet.cells[id]!;
+    for (const neighbor of cell.neighbors) {
+      if (component.has(neighbor)) continue;
+      if (neighbor === candidateCellId) continue;
+      if (state.placed.has(neighbor)) placedBoundaryCellIds.add(neighbor);
+    }
+  }
+  return placedBoundaryCellIds.size;
+}
+
 function sealedByCandidate(
   component: Set<number>,
   candidateCellId: number,
@@ -89,37 +105,13 @@ function stubEdgesForComponent(
   return stubs;
 }
 
-function isFrontierOpenEnd(
-  cellId: number,
-  state: PlacementState,
-  candidateCellId: number,
-  boundaryId: number | null,
-): boolean {
-  const cell = state.planet.cells[cellId];
-  if (!cell) return false;
-  for (const neighbor of cell.neighbors) {
-    if (neighbor === candidateCellId) continue;
-    if (boundaryId !== null && neighbor === boundaryId) continue;
-    if (!state.placed.has(neighbor) && state.planet.cells[neighbor]) return true;
-  }
-  return false;
-}
-
 export function pocketsAfterPlacing(
   state: PlacementState,
   candidateCellId: number,
 ): Pocket[] {
   const boundaryId = boundaryCellId(state);
-  const openEndCellIds = new Set(
-    listOpenEnds(state)
-      .map((end) => end.cellId)
-      .filter((cellId) =>
-        isFrontierOpenEnd(cellId, state, candidateCellId, boundaryId),
-      ),
-  );
   const isEmptyFn = (cellId: number) =>
-    isEmpty(cellId, state, candidateCellId, boundaryId) &&
-    !openEndCellIds.has(cellId);
+    isEmpty(cellId, state, candidateCellId, boundaryId);
 
   const visited = new Set<number>();
   const pockets: Pocket[] = [];
@@ -156,6 +148,10 @@ export function pocketsAfterPlacing(
         isEmptyFn,
       ),
     });
+  }
+
+  if (boundaryId === null && pockets.length === 1) {
+    return pockets.map((pocket) => ({ ...pocket, sealedByCandidate: false }));
   }
 
   return pockets;
@@ -238,6 +234,19 @@ function pocketGroupId(pocket: Pocket): string {
   return `pocket-${id}`;
 }
 
+function isPlacedAttachEdge(
+  state: PlacementState,
+  cellId: number,
+  edge: number,
+): boolean {
+  const neighborId = state.planet.cells[cellId]?.neighbors[edge];
+  if (neighborId === undefined) return false;
+  const neighborPlaced = state.placed.get(neighborId);
+  if (!neighborPlaced) return false;
+  const neighborEdge = edgeTo(neighborId, cellId, state);
+  return neighborPlaced.connections[neighborEdge] ?? false;
+}
+
 export function classifyCandidateEdges(
   state: PlacementState,
   cellId: number,
@@ -277,8 +286,19 @@ export function classifyCandidateEdges(
     const pocketCells = new Set(pocket.emptyCellIds);
     const pocketEdges = candidateEdgesInto(state, cellId, pocketCells);
     if (pocketEdges.length === 0) continue;
+    const placedBoundaryCount = componentPlacedBoundaryCount(
+      pocketCells,
+      cellId,
+      state,
+    );
 
     if (pocket.stubEdges.length >= 1) {
+      if (
+        pocket.emptyCellIds.length > 1 &&
+        placedBoundaryCount < pocketEdges.length
+      ) {
+        continue;
+      }
       const required = requiredEdgesForStubPaths(
         state,
         pocketCells,
@@ -292,6 +312,10 @@ export function classifyCandidateEdges(
       for (const edge of pocketEdges) {
         setConstraint(constraints, edge.edge, "forbidden");
       }
+    } else if (placedBoundaryCount < pocketEdges.length) {
+      // A pure open frontier bounded only by the flat fixture's off-map cell is
+      // growth territory, not an enclosed all-or-nothing pocket.
+      continue;
     } else {
       const groupId = pocketGroupId(pocket);
       for (const edge of pocketEdges) {
@@ -311,6 +335,7 @@ export function classifyCandidateEdges(
     // pass intentionally re-groups non-forbidden empty edges as at-least-one.
     for (const constraint of constraints) {
       if (constraint.kind !== "optional") continue;
+      if (constraint.groupId?.startsWith("pocket-")) continue;
       const neighborId = cell.neighbors[constraint.edge]!;
       if (state.placed.has(neighborId)) continue;
       if (boundaryId !== null && neighborId === boundaryId) continue;
@@ -346,6 +371,17 @@ export function connectionsSatisfyFinishability(
       if (open) group.open += 1;
       groups.set(constraint.groupId, group);
     }
+  }
+
+  const openEdges = constraints
+    .filter((constraint) => connections[constraint.edge] ?? false)
+    .map((constraint) => constraint.edge);
+  if (
+    openEdges.length === 1 &&
+    !state.baseCellIds.includes(cellId) &&
+    isPlacedAttachEdge(state, cellId, openEdges[0]!)
+  ) {
+    return false;
   }
 
   for (const [groupId, group] of groups) {
