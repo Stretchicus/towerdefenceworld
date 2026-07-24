@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   autoPlaceBag,
   basesConnected,
+  buildFlatHexPlanet,
   buildPlanet,
   canAfford,
   createMatch,
@@ -49,6 +50,20 @@ function flushCountdown(match: MatchState): void {
   let guard = 0;
   while (match.phase === "countdown" && guard++ < 1000) tickMatch(match);
 }
+describe("flat hex planet", () => {
+  it("buildFlatHexPlanet links axial neighbours symmetrically", () => {
+    const planet = buildFlatHexPlanet([
+      { q: 0, r: 0 },
+      { q: 1, r: 0 },
+      { q: 0, r: 1 },
+    ]);
+    assert.equal(planet.cells.length, 4);
+    const a = planet.cells[0]!;
+    assert.ok(a.neighbors.includes(1));
+    assert.ok(planet.cells[1]!.neighbors.includes(0));
+  });
+});
+
 describe("goldberg planet", () => {
   it("has exactly 12 pentagons for each size", () => {
     for (const size of ["small", "medium", "large"] as const) {

@@ -13,6 +13,11 @@ export {
 export { createRng, pickIndex } from "./rng.js";
 export { buildPlanet, cellById, WORLD_FREQUENCY } from "./planet/goldberg.js";
 export {
+  buildFlatHexPlanet,
+  flatHexBoundaryId,
+  type FlatHexCoord,
+} from "./tiles/flatHex.js";
+export {
   makeTile,
   rotateConnections,
   generateTileBag,
