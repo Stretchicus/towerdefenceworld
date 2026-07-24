@@ -5,6 +5,7 @@ import {
   basesConnected,
   buildFlatHexPlanet,
   flatHexBoundaryId,
+  pocketsAfterPlacing,
   buildPlanet,
   canAfford,
   createMatch,
@@ -51,6 +52,43 @@ function flushCountdown(match: MatchState): void {
   let guard = 0;
   while (match.phase === "countdown" && guard++ < 1000) tickMatch(match);
 }
+describe("pocket detection", () => {
+  it("detects a single-cell pocket sealed by the candidate gap", () => {
+    const playable = [
+      { q: 0, r: 0 },
+      { q: 1, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+      { q: -1, r: 0 },
+      { q: -1, r: 1 },
+      { q: 0, r: 1 },
+    ];
+    const planet = buildFlatHexPlanet(playable);
+    const centerId = 0;
+    const candidateId = 6;
+    const closed = makeTile("closed", [false, false, false, false, false, false]);
+    const placed = new Map<number, import("./types.js").PlacedTile>();
+    for (const id of [1, 2, 3, 4, 5]) {
+      placed.set(id, {
+        cellId: id,
+        tile: closed,
+        rotation: 0,
+        connections: [false, false, false, false, false, false],
+      });
+    }
+    const state = createPlacementState(planet);
+    state.placed = placed;
+    state.baseCellIds = [];
+
+    const pockets = pocketsAfterPlacing(state, candidateId);
+
+    assert.equal(pockets.length, 1);
+    assert.deepEqual(pockets[0]!.emptyCellIds, [centerId]);
+    assert.equal(pockets[0]!.sealedByCandidate, true);
+    assert.deepEqual(pockets[0]!.stubEdges, []);
+  });
+});
+
 describe("flat hex planet", () => {
   it("buildFlatHexPlanet links axial neighbours symmetrically", () => {
     const playable = [
