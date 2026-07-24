@@ -4,6 +4,7 @@ import {
   autoPlaceBag,
   basesConnected,
   buildFlatHexPlanet,
+  flatHexBoundaryId,
   buildPlanet,
   canAfford,
   createMatch,
@@ -52,15 +53,46 @@ function flushCountdown(match: MatchState): void {
 }
 describe("flat hex planet", () => {
   it("buildFlatHexPlanet links axial neighbours symmetrically", () => {
-    const planet = buildFlatHexPlanet([
+    const playable = [
       { q: 0, r: 0 },
       { q: 1, r: 0 },
       { q: 0, r: 1 },
-    ]);
+    ];
+    const planet = buildFlatHexPlanet(playable);
+    const boundaryId = flatHexBoundaryId(playable.length);
+    const playableIds = new Set([0, 1, 2]);
+
     assert.equal(planet.cells.length, 4);
-    const a = planet.cells[0]!;
-    assert.ok(a.neighbors.includes(1));
+
+    for (const id of playableIds) {
+      const cell = planet.cells[id]!;
+      assert.equal(cell.sides, 6);
+      assert.equal(cell.neighbors.length, 6);
+    }
+
+    assert.ok(planet.cells[0]!.neighbors.includes(1));
     assert.ok(planet.cells[1]!.neighbors.includes(0));
+    assert.ok(planet.cells[0]!.neighbors.includes(2));
+    assert.ok(planet.cells[2]!.neighbors.includes(0));
+
+    for (const id of playableIds) {
+      for (const n of planet.cells[id]!.neighbors) {
+        if (!playableIds.has(n)) {
+          assert.equal(n, boundaryId);
+        }
+      }
+    }
+
+    const withBase = buildFlatHexPlanet(playable, {
+      baseCoords: [{ q: 0, r: 0 }],
+    });
+    assert.deepEqual(withBase.baseCellIds, [0]);
+
+    assert.throws(
+      () =>
+        buildFlatHexPlanet(playable, { baseCoords: [{ q: 5, r: 5 }] }),
+      /not in playable set/,
+    );
   });
 });
 
