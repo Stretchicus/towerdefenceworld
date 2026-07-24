@@ -291,6 +291,10 @@ export function autoPlaceBag(
  * Force-connect bases with corridor tiles along shortest cell hops
  * that are still empty (graph distance on planet adjacency, not route),
  * then join remaining open stubs until the network is clean.
+ *
+ * Turn-cap emergency only: prefers `placeTile` (finishability-gated). When no
+ * legal bridge exists, `forcePlaceBridge` and carve helpers may bypass
+ * finishability to avoid leaving an incomplete board — still no seal/prune.
  */
 export function autoBridge(state: PlacementState): void {
   let carveGuard = 0;
@@ -345,6 +349,10 @@ export function autoBridge(state: PlacementState): void {
 /**
  * Join remaining open stubs by legal tiles or carving corridors between ends.
  * Never deletes tiles or seals connection bits without placing/carving a route.
+ *
+ * Tries finishable `placeTile` first (`placeAnyClosingTile`). Carve helpers
+ * (`carveAnyOpenEndPair`, `carveStubBackToNetwork`, `openEdge`) are cap-only
+ * fallbacks and may bypass finishability; normal manual/auto placement must not.
  */
 export function closeOpenEndsByPlacing(state: PlacementState): void {
   let guard = 0;
@@ -654,6 +662,7 @@ function openEdge(state: PlacementState, a: number, b: number): void {
   }
 }
 
+/** Cap-only bridge write when `placeTile` has no legal rotation; skips finishability. */
 function forcePlaceBridge(
   state: PlacementState,
   cellId: number,

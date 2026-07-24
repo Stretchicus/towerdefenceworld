@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.1.59 — 2026-07-24
+
+### Changed
+
+- Tile placement legality uses finishability classification (required / forbidden / optional edges + pocket rules) instead of the blunt open-stub-count guard
+- Manual and auto placement must satisfy finishability; the tile sampler only offers shapes with at least one legal cell/rotation
+- Cap fallback prefers finishable placements; emergency carve inside `autoBridge` / `closeOpenEndsByPlacing` may bypass finishability to complete the network (still no prune)
+
+### Added
+
+- Finishability classifier with pocket detection and SVG examples 1–6 as unit-test fixtures
+
 ## 0.1.58 — 2026-07-24
 
 ### Changed

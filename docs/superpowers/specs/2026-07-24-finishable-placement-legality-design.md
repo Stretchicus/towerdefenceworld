@@ -1,6 +1,6 @@
 # Placement legality: finishable stubs (no forced dead ends)
 
-**Status:** Draft for review 2026-07-24  
+**Status:** Approved 2026-07-24  
 **Version target:** follow-on bugfix after v0.1.58  
 **Supersedes:** the v0.1.58 rule “placements that increase open-stub count are always illegal” (too blunt; bans normal growth)
 
@@ -107,7 +107,7 @@ Placement ends when:
 - zero open stubs into empty land, **and**
 - no non-base spur tips (route degree ≥ 2 for every non-base road cell).
 
-No seal/prune that deletes or silently closes roads. Cap fallback may only **place/carve real corridors** that themselves obey finishability.
+No seal/prune that deletes or silently closes roads. Cap fallback prefers finishable `placeTile` placements; emergency carve inside `autoBridge` / `closeOpenEndsByPlacing` may bypass finishability to complete the network (still no prune).
 
 ---
 
