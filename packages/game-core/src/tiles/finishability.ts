@@ -246,14 +246,10 @@ export function classifyCandidateEdges(
     }
   }
 
-  const sealedPocketCells = new Set<number>();
   for (const pocket of pocketsAfterPlacing(state, cellId)) {
     if (!pocket.sealedByCandidate) continue;
 
     const pocketCells = new Set(pocket.emptyCellIds);
-    for (const emptyCellId of pocket.emptyCellIds) {
-      sealedPocketCells.add(emptyCellId);
-    }
     const pocketEdges = candidateEdgesInto(state, cellId, pocketCells);
     if (pocketEdges.length === 0) continue;
 
@@ -285,12 +281,14 @@ export function classifyCandidateEdges(
     requiredEdges.length === attachingStubEdges.size &&
     requiredEdges.every((c) => attachingStubEdges.has(c.edge));
   if (requiredOnlyAttachPlaced) {
+    // A pure attach must keep growing if any playable empty neighbour is available.
+    // Finite flat fixtures can label that open frontier as a pocket first, so this
+    // pass intentionally re-groups non-forbidden empty edges as at-least-one.
     for (const constraint of constraints) {
       if (constraint.kind !== "optional") continue;
       const neighborId = cell.neighbors[constraint.edge]!;
       if (state.placed.has(neighborId)) continue;
       if (boundaryId !== null && neighborId === boundaryId) continue;
-      if (sealedPocketCells.has(neighborId)) continue;
       if (!state.planet.cells[neighborId]) continue;
       setConstraint(
         constraints,

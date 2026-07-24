@@ -53,3 +53,17 @@ npm run test -w @tdw/game-core
 ```text
 feat(tiles): classify required/forbidden/optional finishability edges
 ```
+
+## Fix pass: review findings
+
+- Added regression coverage for the Example-6-style single attach with three empty continuation edges: attach-only is rejected, attach plus one continuation is accepted, and attach plus all continuations is accepted.
+- Added coverage for the pure wall-cap case: when every non-attach edge is boundary, attach-only remains accepted.
+- Updated the pure single-attach frontier pass so optional playable empty edges are grouped as `frontier-continuations` / atLeastOne instead of staying sealed as all-or-nothing `pocket-*` edges.
+
+```text
+npm run test -w @tdw/game-core
+
+# tests 49
+# pass 49
+# fail 0
+```

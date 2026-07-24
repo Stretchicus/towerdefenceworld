@@ -55,6 +55,31 @@ function flushCountdown(match: MatchState): void {
   while (match.phase === "countdown" && guard++ < 1000) tickMatch(match);
 }
 describe("pocket detection", () => {
+  function edgeBetween(
+    state: ReturnType<typeof createPlacementState>,
+    fromCellId: number,
+    toCellId: number,
+  ): number {
+    const edge = state.planet.cells[fromCellId]!.neighbors.indexOf(toCellId);
+    assert.notEqual(edge, -1, `${fromCellId} must neighbor ${toCellId}`);
+    return edge;
+  }
+
+  function placeOpenStub(
+    state: ReturnType<typeof createPlacementState>,
+    fromCellId: number,
+    toCellId: number,
+  ): void {
+    const connections = [false, false, false, false, false, false];
+    connections[edgeBetween(state, fromCellId, toCellId)] = true;
+    state.placed.set(fromCellId, {
+      cellId: fromCellId,
+      tile: makeTile("stub", [false, false, false, false, false, false]),
+      rotation: 0,
+      connections,
+    });
+  }
+
   function placeClosedRingAroundSinglePocket(
     openStubIntoCenter = false,
   ): {
@@ -190,6 +215,75 @@ describe("pocket detection", () => {
         [false, true, false, false, false, false],
       ),
       false,
+    );
+  });
+
+  it("requires at least one open frontier continuation from a single attach", () => {
+    const playable = [
+      { q: 0, r: 0 },
+      { q: -1, r: 0 },
+      { q: 1, r: 0 },
+      { q: 1, r: -1 },
+      { q: 0, r: -1 },
+    ];
+    const candidateId = 0;
+    const attachId = 1;
+    const state = createPlacementState(buildFlatHexPlanet(playable));
+    state.baseCellIds = [];
+    placeOpenStub(state, attachId, candidateId);
+
+    const constraints = classifyCandidateEdges(state, candidateId);
+
+    assert.deepEqual(
+      constraints
+        .filter((c) => c.groupId === "frontier-continuations")
+        .map((c) => c.edge),
+      [0, 1, 2],
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, false, false, true, false, false],
+      ),
+      false,
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [true, false, false, true, false, false],
+      ),
+      true,
+    );
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [true, true, true, true, false, false],
+      ),
+      true,
+    );
+  });
+
+  it("allows an attach-only cap when every other edge is boundary", () => {
+    const playable = [
+      { q: 0, r: 0 },
+      { q: -1, r: 0 },
+    ];
+    const candidateId = 0;
+    const attachId = 1;
+    const state = createPlacementState(buildFlatHexPlanet(playable));
+    state.baseCellIds = [];
+    placeOpenStub(state, attachId, candidateId);
+
+    assert.equal(
+      connectionsSatisfyFinishability(
+        state,
+        candidateId,
+        [false, false, false, true, false, false],
+      ),
+      true,
     );
   });
 });
